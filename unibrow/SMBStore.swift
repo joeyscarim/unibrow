@@ -293,6 +293,21 @@ final class SMBStore: ObservableObject {
             || lower.hasSuffix(".mov")
             || lower.hasSuffix(".m4v")
     }
+    
+    func clearThumbnailCache() {
+        thumbnails = [:]
+        loadingThumbnailPaths.removeAll()
+        thumbnailMemoryCache.removeAllObjects()
+
+        if thumbnailFileManager.fileExists(atPath: thumbnailCacheDirectory.path) {
+            try? thumbnailFileManager.removeItem(at: thumbnailCacheDirectory)
+        }
+
+        try? thumbnailFileManager.createDirectory(
+            at: thumbnailCacheDirectory,
+            withIntermediateDirectories: true
+        )
+    }
 
     private func thumbnailCacheKey(for item: SMBItem) -> String {
         let raw = "\(item.path.lowercased())|\(item.size ?? 0)"
