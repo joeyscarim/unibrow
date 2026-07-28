@@ -190,12 +190,21 @@ struct SMBDirectoryView: View {
 
     private func gridCellContent(for item: SMBItem) -> some View {
         VStack(spacing: 8) {
-            RoundedRectangle(cornerRadius: 12)
-                .fill(Color(.secondarySystemBackground))
-                .aspectRatio(1, contentMode: .fit)
-                .overlay {
-                    thumbnailContent(for: item, style: .grid)
+            Group {
+                if item.isDirectory {
+                    Image(systemName: "folder.fill")
+                        .font(.system(size: 58))
+                        .foregroundStyle(.blue)
+                        .frame(maxWidth: .infinity, maxHeight: .infinity)
+                } else {
+                    RoundedRectangle(cornerRadius: 12)
+                        .fill(Color(.secondarySystemBackground))
+                        .overlay {
+                            thumbnailContent(for: item, style: .grid)
+                        }
                 }
+            }
+            .aspectRatio(1, contentMode: .fit)
 
             Text(item.name)
                 .font(.caption)
@@ -237,7 +246,7 @@ struct SMBDirectoryView: View {
     private func thumbnailContent(for item: SMBItem, style: ThumbnailStyle) -> some View {
         if item.isDirectory {
             Image(systemName: "folder.fill")
-                .font(.system(size: style == .grid ? 34 : 20))
+                .font(.system(size: style == .grid ? 58 : 28))
                 .foregroundStyle(.blue)
 
         } else if let image = smbStore.thumbnails[item.path] {
