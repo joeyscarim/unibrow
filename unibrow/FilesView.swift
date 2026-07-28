@@ -4,6 +4,7 @@ struct FilesView: View {
     @EnvironmentObject private var savedConnectionsStore: SavedConnectionsStore
     @EnvironmentObject private var smbStore: SMBStore
     @State private var navigationPath = NavigationPath()
+    @State private var connectionToEdit: SavedConnection?
 
     var body: some View {
         NavigationStack(path: $navigationPath) {
@@ -32,6 +33,12 @@ struct FilesView: View {
                                 } label: {
                                     Label("Delete", systemImage: "trash")
                                 }
+
+                                Button {
+                                    connectionToEdit = connection
+                                } label: {
+                                    Label("Edit", systemImage: "pencil")
+                                }
                             }
                         }
                     }
@@ -50,6 +57,11 @@ struct FilesView: View {
             }
             .navigationDestination(for: SavedConnection.self) { connection in
                 ConnectionFilesView(connection: connection)
+            }
+            .sheet(item: $connectionToEdit) { connection in
+                NavigationStack {
+                    AddConnectionView(connectionToEdit: connection)
+                }
             }
         }
         .onChange(of: navigationPath.count) { _, count in

@@ -5,6 +5,9 @@ struct AddConnectionView: View {
     @EnvironmentObject private var smbStore: SMBStore
     @Environment(\.dismiss) private var dismiss
 
+    private let connectionToEdit: SavedConnection?
+    private let originalKeychainAccount: String?
+
     @State private var name = ""
     @State private var host = ""
     @State private var share = ""
@@ -16,6 +19,27 @@ struct AddConnectionView: View {
     @State private var resultIsError = false
 
     @FocusState private var focusedField: Field?
+
+    init(connectionToEdit: SavedConnection? = nil) {
+        self.connectionToEdit = connectionToEdit
+
+        if let connection = connectionToEdit {
+            let account = "\(connection.host)|\(connection.share)|\(connection.username)"
+            originalKeychainAccount = account
+            _name = State(initialValue: connection.name)
+            _host = State(initialValue: connection.host)
+            _share = State(initialValue: connection.share)
+            _username = State(initialValue: connection.username)
+            _password = State(initialValue: KeychainService.loadPassword(account: account))
+            _useEncryption = State(initialValue: connection.useEncryption)
+        } else {
+            originalKeychainAccount = nil
+        }
+    }
+
+    private var isEditing: Bool {
+        connectionToEdit != nil
+    }
 
     enum Field: Hashable {
         case name
@@ -90,7 +114,7 @@ struct AddConnectionView: View {
                     focusedField = nil
                     saveConnection()
                 } label: {
-                    Label("Save Connection", systemImage: "square.and.arrow.down")
+                    Label(isEditing ? "Save Changes" : "Save Connection", systemImage: "square.and.arrow.down")
                 }
                 .disabled(
                     host.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ||
@@ -108,7 +132,7 @@ struct AddConnectionView: View {
                 }
             }
         }
-        .navigationTitle("Add Connection")
+        .navigationTitle(isEditing ? "Edit Connection" : "Add Connection")
         .scrollDismissesKeyboard(.interactively)
         .toolbar {
             ToolbarItemGroup(placement: .keyboard) {
@@ -166,16 +190,27 @@ struct AddConnectionView: View {
         }
 
         let connection = SavedConnection(
+            id: connectionToEdit?.id ?? UUID(),
             name: resolvedConnectionName,
             host: trimmedHost,
             share: trimmedShare,
             username: trimmedUsername,
-            password: password,
+            password: "",
             useEncryption: useEncryption
         )
 
+        if let originalKeychainAccount, originalKeychainAccount != keychainAccount {
+            KeychainService.deletePassword(account: originalKeychainAccount)
+        }
+
         KeychainService.savePassword(password, account: keychainAccount)
-        savedConnectionsStore.add(connection)
+
+        if isEditing {
+            savedConnectionsStore.update(connection)
+        } else {
+            savedConnectionsStore.add(connection)
+        }
+
         dismiss()
     }
 

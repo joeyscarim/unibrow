@@ -10,14 +10,6 @@ struct SettingsView: View {
     var body: some View {
         NavigationStack {
             List {
-                Section("Connections") {
-                    NavigationLink {
-                        AddConnectionView()
-                    } label: {
-                        Label("Add Connection", systemImage: "plus.circle")
-                    }
-                }
-
                 Section("Browsing") {
                     Toggle(isOn: Binding(
                         get: { smbStore.hideHiddenFiles },
@@ -52,11 +44,7 @@ struct SettingsView: View {
             .task {
                 await refreshCacheSize()
             }
-            .confirmationDialog(
-                "Clear thumbnail cache?",
-                isPresented: $showingClearThumbnailCacheConfirmation,
-                titleVisibility: .visible
-            ) {
+            .alert("Clear Thumbnail Cache?", isPresented: $showingClearThumbnailCacheConfirmation) {
                 Button("Clear Cache", role: .destructive) {
                     Task {
                         isClearingCache = true
@@ -66,8 +54,7 @@ struct SettingsView: View {
                     }
                 }
 
-                Button("Cancel", role: .cancel) {
-                }
+                Button("Cancel", role: .cancel) { }
             } message: {
                 Text("This removes cached image and video thumbnails. They will be regenerated as needed.")
             }
