@@ -3,6 +3,7 @@ import AMSMB2
 import UIKit
 import Combine
 import AVFoundation
+import ImageIO
 
 struct SMBConnection {
     let host: String
@@ -38,7 +39,7 @@ enum SMBStoreError: LocalizedError {
         case .notConnected:
             return "Not connected to an SMB share."
         case .thumbnailGenerationFailed:
-            return "Could not generate a thumbnail for this video."
+            return "Could not generate a thumbnail for this file."
         }
     }
 }
@@ -58,6 +59,16 @@ final class SMBStore: ObservableObject {
     private var loadingThumbnailPaths = Set<String>()
     private let thumbnailLimiter = ThumbnailLoadLimiter()
     private let thumbnailFileManager = FileManager.default
+
+    private static let thumbnailMaxPixelSize = 400
+    private static let gifFullReadMaxBytes: Int64 = 5 * 1024 * 1024
+
+    private static let imageThumbnailChunkSizes: [Int64] = [
+        256 * 1024,
+        512 * 1024,
+        1024 * 1024,
+        2 * 1024 * 1024
+    ]
 
     private static let videoThumbnailChunkSizes: [Int64] = [
         5 * 1024 * 1024,
@@ -249,11 +260,9 @@ final class SMBStore: ObservableObject {
 
         if isImageFile(item.name) {
             do {
-                let data = try await loadFileData(path: item.path)
-                if let image = await Self.decodeAndCacheImageThumbnail(from: data, cacheURL: cacheURL) {
-                    thumbnailMemoryCache.setObject(image, forKey: memoryKey)
-                    thumbnails[item.path] = image
-                }
+                let image = try await loadImageThumbnail(for: item, cacheURL: cacheURL)
+                thumbnailMemoryCache.setObject(image, forKey: memoryKey)
+                thumbnails[item.path] = image
             } catch {
             }
             return
@@ -363,7 +372,7 @@ final class SMBStore: ObservableObject {
         return tempFileURL
     }
 
-    private func partialVideoData(for item: SMBItem, maxBytes: Int64) async throws -> Data {
+    private func partialFileData(for item: SMBItem, maxBytes: Int64) async throws -> Data {
         guard let client else {
             throw SMBStoreError.notConnected
         }
@@ -384,13 +393,49 @@ final class SMBStore: ObservableObject {
         return try await client.contents(atPath: item.path, range: 0..<byteCount)
     }
 
+    private func loadImageThumbnail(for item: SMBItem, cacheURL: URL) async throws -> UIImage {
+        let chunkSizes = Self.imageThumbnailChunkSizes(for: item)
+        var lastError: Error?
+
+        for chunkSize in chunkSizes {
+            do {
+                let data = try await partialFileData(for: item, maxBytes: chunkSize)
+
+                if let image = await Self.downsampleAndCacheImageThumbnail(from: data, cacheURL: cacheURL) {
+                    return image
+                }
+            } catch {
+                lastError = error
+            }
+
+            if let fileSize = item.size, fileSize > 0, chunkSize >= fileSize {
+                break
+            }
+        }
+
+        throw lastError ?? SMBStoreError.thumbnailGenerationFailed
+    }
+
+    private static func imageThumbnailChunkSizes(for item: SMBItem) -> [Int64] {
+        let lower = item.name.lowercased()
+
+        if lower.hasSuffix(".gif"),
+           let fileSize = item.size,
+           fileSize > 0,
+           fileSize <= gifFullReadMaxBytes {
+            return [fileSize]
+        }
+
+        return imageThumbnailChunkSizes
+    }
+
     private func loadVideoThumbnail(for item: SMBItem, cacheURL: URL) async throws -> UIImage {
         let fileExtension = (item.name as NSString).pathExtension
         var lastError: Error?
 
         for chunkSize in Self.videoThumbnailChunkSizes {
             do {
-                let data = try await partialVideoData(for: item, maxBytes: chunkSize)
+                let data = try await partialFileData(for: item, maxBytes: chunkSize)
                 let image = try await Self.generateVideoThumbnail(
                     from: data,
                     fileExtension: fileExtension,
@@ -416,9 +461,30 @@ final class SMBStore: ObservableObject {
         }.value
     }
 
-    private static func decodeAndCacheImageThumbnail(from data: Data, cacheURL: URL) async -> UIImage? {
+    private static func downsampleAndCacheImageThumbnail(from data: Data, cacheURL: URL) async -> UIImage? {
         await Task.detached(priority: .utility) {
-            guard let image = UIImage(data: data) else { return nil }
+            let sourceOptions = [
+                kCGImageSourceShouldCache: false,
+                kCGImageSourceShouldCacheImmediately: false
+            ] as CFDictionary
+
+            guard let source = CGImageSourceCreateWithData(data as CFData, sourceOptions),
+                  CGImageSourceGetCount(source) > 0
+            else {
+                return nil
+            }
+
+            let thumbnailOptions = [
+                kCGImageSourceCreateThumbnailFromImageIfAbsent: true,
+                kCGImageSourceCreateThumbnailWithTransform: true,
+                kCGImageSourceThumbnailMaxPixelSize: thumbnailMaxPixelSize
+            ] as CFDictionary
+
+            guard let cgImage = CGImageSourceCreateThumbnailAtIndex(source, 0, thumbnailOptions) else {
+                return nil
+            }
+
+            let image = UIImage(cgImage: cgImage)
 
             if let jpegData = image.jpegData(compressionQuality: 0.8) {
                 try? ProtectedFileStorage.writeProtectedData(jpegData, to: cacheURL)
