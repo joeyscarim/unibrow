@@ -5,48 +5,57 @@ struct ConnectionFilesView: View {
     let connection: SavedConnection
 
     @State private var showGrid = true
-    @State private var hasAttemptedConnect = false
-    @State private var previewError = ""
+    @State private var phase: ConnectionPhase = .connecting
+
+    private enum ConnectionPhase: Equatable {
+        case connecting
+        case connected
+        case failed(String)
+    }
 
     var body: some View {
         Group {
-            if smbStore.isLoading && !hasAttemptedConnect {
+            switch phase {
+            case .connecting:
                 ProgressView("Connecting...")
-            } else if !smbStore.isConnected {
-                ContentUnavailableView(
-                    "Not Connected",
-                    systemImage: "externaldrive.badge.questionmark",
-                    description: Text(
-                        previewError.isEmpty
-                        ? "Connecting to \(connection.name)…"
-                        : previewError
-                    )
-                )
-            } else {
+
+            case .connected:
                 SMBDirectoryView(
                     path: "/",
                     title: connection.name,
                     showGrid: $showGrid
                 )
+
+            case .failed(let message):
+                ContentUnavailableView(
+                    "Not Connected",
+                    systemImage: "externaldrive.badge.questionmark",
+                    description: Text(message)
+                )
             }
         }
-        .task {
-            guard !hasAttemptedConnect else { return }
-            hasAttemptedConnect = true
+        .task(id: connection.id) {
+            phase = .connecting
 
             do {
                 try await smbStore.connect(using: connection)
+
+                guard !Task.isCancelled, smbStore.isActiveConnection(connection) else {
+                    return
+                }
+
+                phase = .connected
             } catch {
-                previewError = error.localizedDescription
+                guard !Task.isCancelled else { return }
+                phase = .failed(error.localizedDescription)
             }
         }
-        .alert("Error", isPresented: Binding(
-            get: { !previewError.isEmpty },
-            set: { if !$0 { previewError = "" } }
-        )) {
-            Button("OK", role: .cancel) { }
-        } message: {
-            Text(previewError)
+        .onDisappear {
+            Task {
+                if smbStore.isActiveConnection(connection) {
+                    await smbStore.disconnect()
+                }
+            }
         }
     }
 }
@@ -102,6 +111,7 @@ struct SMBDirectoryView: View {
                 do {
                     directoryItems = try await smbStore.directoryItems(at: path)
                 } catch {
+                    guard !Task.isCancelled else { return }
                     previewError = error.localizedDescription
                 }
             }
