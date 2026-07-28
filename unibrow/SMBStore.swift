@@ -3,6 +3,10 @@ import Observation
 import AMSMB2
 import UIKit
 
+import SwiftUI
+import Combine
+
+
 struct SMBConnection {
     let host: String
     let share: String
@@ -40,7 +44,7 @@ enum SMBStoreError: LocalizedError {
 
 @MainActor
 @Observable
-final class SMBStore {
+final class SMBStore: ObservableObject {
     var isConnected = false
     var isLoading = false
     var connectionSummary = ""

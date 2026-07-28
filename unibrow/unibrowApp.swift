@@ -9,9 +9,17 @@ import SwiftUI
 
 @main
 struct unibrowApp: App {
-    var body: some Scene {
-        WindowGroup {
-            ContentView()
-        }
-    }
+    
+    @StateObject private var smbStore = SMBStore()
+     @StateObject private var savedConnectionsStore = SavedConnectionsStore()
+
+     var body: some Scene {
+         WindowGroup {
+             ContentView()
+                 .environmentObject(smbStore)
+                 .environmentObject(savedConnectionsStore)
+         }
+     }
+    
+   
 }
