@@ -84,6 +84,8 @@ struct SMBDirectoryView: View {
     @State private var previewError = ""
     @State private var selectedImageItem: SMBItem?
 
+    private let folderIconColor = Color(red: 0.52, green: 0.78, blue: 1.0)
+
     private let columns = Array(
         repeating: GridItem(.flexible(minimum: 90, maximum: 120), spacing: 12, alignment: .top),
         count: 3
@@ -215,7 +217,7 @@ struct SMBDirectoryView: View {
                 if item.isDirectory {
                     Image(systemName: "folder.fill")
                         .font(.system(size: 58))
-                        .foregroundStyle(.blue)
+                        .foregroundStyle(folderIconColor)
                         .frame(maxWidth: .infinity, maxHeight: .infinity)
                 } else {
                     RoundedRectangle(cornerRadius: 12)
@@ -268,7 +270,7 @@ struct SMBDirectoryView: View {
         if item.isDirectory {
             Image(systemName: "folder.fill")
                 .font(.system(size: style == .grid ? 58 : 28))
-                .foregroundStyle(.blue)
+                .foregroundStyle(folderIconColor)
 
         } else if let image = smbStore.thumbnails[item.path] {
             switch style {
