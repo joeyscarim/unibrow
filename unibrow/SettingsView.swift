@@ -4,6 +4,7 @@ struct SettingsView: View {
     @EnvironmentObject private var smbStore: SMBStore
 
     @State private var showingClearThumbnailCacheConfirmation = false
+    @State private var thumbnailCacheSize = "—"
 
     var body: some View {
         NavigationStack {
@@ -17,6 +18,13 @@ struct SettingsView: View {
                 }
 
                 Section("Storage") {
+                    HStack {
+                        Label("Thumbnail Cache", systemImage: "internaldrive")
+                        Spacer()
+                        Text(thumbnailCacheSize)
+                            .foregroundStyle(.secondary)
+                    }
+
                     Button(role: .destructive) {
                         showingClearThumbnailCacheConfirmation = true
                     } label: {
@@ -26,6 +34,9 @@ struct SettingsView: View {
             }
             .listStyle(.insetGrouped)
             .navigationTitle("Settings")
+            .onAppear {
+                refreshCacheSize()
+            }
             .confirmationDialog(
                 "Clear thumbnail cache?",
                 isPresented: $showingClearThumbnailCacheConfirmation,
@@ -33,6 +44,7 @@ struct SettingsView: View {
             ) {
                 Button("Clear Cache", role: .destructive) {
                     smbStore.clearThumbnailCache()
+                    refreshCacheSize()
                 }
 
                 Button("Cancel", role: .cancel) {
@@ -41,5 +53,9 @@ struct SettingsView: View {
                 Text("This removes cached image and video thumbnails. They will be regenerated as needed.")
             }
         }
+    }
+
+    private func refreshCacheSize() {
+        thumbnailCacheSize = smbStore.formattedThumbnailCacheSize()
     }
 }

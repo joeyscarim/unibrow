@@ -308,6 +308,41 @@ final class SMBStore: ObservableObject {
             withIntermediateDirectories: true
         )
     }
+    
+    func thumbnailCacheSizeInBytes() -> Int64 {
+        let url = thumbnailCacheDirectory
+
+        guard thumbnailFileManager.fileExists(atPath: url.path),
+              let enumerator = thumbnailFileManager.enumerator(
+                at: url,
+                includingPropertiesForKeys: [.isDirectoryKey, .fileSizeKey],
+                options: [.skipsHiddenFiles]
+              )
+        else {
+            return 0
+        }
+
+        var totalSize: Int64 = 0
+
+        for case let fileURL as URL in enumerator {
+            guard let values = try? fileURL.resourceValues(forKeys: [.isDirectoryKey, .fileSizeKey]),
+                  values.isDirectory != true
+            else {
+                continue
+            }
+
+            totalSize += Int64(values.fileSize ?? 0)
+        }
+
+        return totalSize
+    }
+
+    func formattedThumbnailCacheSize() -> String {
+        ByteCountFormatter.string(
+            fromByteCount: thumbnailCacheSizeInBytes(),
+            countStyle: .file
+        )
+    }
 
     private func thumbnailCacheKey(for item: SMBItem) -> String {
         let raw = "\(item.path.lowercased())|\(item.size ?? 0)"
