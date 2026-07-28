@@ -7,6 +7,7 @@ struct ConnectionFilesView: View {
     @State private var previewError = ""
     @State private var showGrid = true
     @State private var hasAttemptedConnect = false
+    @State private var selectedImageItem: SMBItem?
 
     private let columns = Array(
         repeating: GridItem(.flexible(minimum: 90, maximum: 120), spacing: 12, alignment: .top),
@@ -32,6 +33,13 @@ struct ConnectionFilesView: View {
             }
         }
         .navigationTitle(connection.name)
+        .fullScreenCover(item: $selectedImageItem) { tappedItem in
+            ImageGalleryView(
+                smbStore: smbStore,
+                allItems: smbStore.items,
+                selectedItem: tappedItem
+            )
+        }
         .task {
             guard !hasAttemptedConnect else { return }
             hasAttemptedConnect = true
@@ -232,6 +240,10 @@ struct ConnectionFilesView: View {
                     previewError = error.localizedDescription
                 }
             }
+            return
         }
+
+        guard smbStore.isImageFile(item.name) else { return }
+        selectedImageItem = item
     }
 }

@@ -32,6 +32,11 @@ final class SavedConnectionsStore: ObservableObject {
         guard let data = try? JSONEncoder().encode(connections) else { return }
         UserDefaults.standard.set(data, forKey: storageKey)
     }
+    
+    func delete(_ connection: SavedConnection) {
+        connections.removeAll { $0.id == connection.id }
+        save()
+    }
 
     private func load() {
         guard

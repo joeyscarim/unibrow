@@ -26,6 +26,13 @@ struct FilesView: View {
                                         .foregroundStyle(.secondary)
                                 }
                             }
+                            .swipeActions(edge: .trailing, allowsFullSwipe: false) {
+                                Button(role: .destructive) {
+                                    savedConnectionsStore.delete(connection)
+                                } label: {
+                                    Label("Delete", systemImage: "trash")
+                                }
+                            }
                         }
                     }
                 }
