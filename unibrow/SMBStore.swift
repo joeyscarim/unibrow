@@ -241,30 +241,11 @@ final class SMBStore: ObservableObject {
         }
 
         if isVideoFile(item.name) {
-            var tempURL: URL?
-
             do {
-                let data = try await loadFileData(path: item.path)
-                let fileExtension = (item.name as NSString).pathExtension
+                let tempURL = try await prepareLocalVideoFile(for: item)
+                defer { cleanupPreparedVideo(at: tempURL) }
 
-                let localTempURL = FileManager.default.temporaryDirectory
-                    .appendingPathComponent(UUID().uuidString)
-                    .appendingPathExtension(fileExtension.isEmpty ? "mp4" : fileExtension)
-
-                tempURL = localTempURL
-                try data.write(to: localTempURL, options: .atomic)
-
-                let asset = AVURLAsset(url: localTempURL)
-                let generator = AVAssetImageGenerator(asset: asset)
-                generator.appliesPreferredTrackTransform = true
-                generator.maximumSize = CGSize(width: 400, height: 400)
-
-                let cgImage = try generator.copyCGImage(
-                    at: CMTime(seconds: 1, preferredTimescale: 600),
-                    actualTime: nil
-                )
-
-                let image = UIImage(cgImage: cgImage)
+                let image = try await makeVideoThumbnail(from: tempURL)
 
                 thumbnailMemoryCache.setObject(image, forKey: memoryKey)
                 saveThumbnailToDisk(image, for: item)
@@ -272,10 +253,16 @@ final class SMBStore: ObservableObject {
             } catch {
             }
 
-            if let tempURL {
-                try? FileManager.default.removeItem(at: tempURL)
-            }
+            return
         }
+    }
+
+    func prepareVideoForPlayback(for item: SMBItem) async throws -> URL {
+        try await prepareLocalVideoFile(for: item)
+    }
+
+    func cleanupPreparedVideo(at url: URL) {
+        try? FileManager.default.removeItem(at: url)
     }
 
     func isImageFile(_ name: String) -> Bool {
@@ -293,7 +280,7 @@ final class SMBStore: ObservableObject {
             || lower.hasSuffix(".mov")
             || lower.hasSuffix(".m4v")
     }
-    
+
     func clearThumbnailCache() {
         thumbnails = [:]
         loadingThumbnailPaths.removeAll()
@@ -308,7 +295,7 @@ final class SMBStore: ObservableObject {
             withIntermediateDirectories: true
         )
     }
-    
+
     func thumbnailCacheSizeInBytes() -> Int64 {
         let url = thumbnailCacheDirectory
 
@@ -344,11 +331,44 @@ final class SMBStore: ObservableObject {
         )
     }
 
+    private func prepareLocalVideoFile(for item: SMBItem) async throws -> URL {
+        guard let client else {
+            throw SMBStoreError.notConnected
+        }
+
+        let fileExtension = (item.name as NSString).pathExtension
+        let tempFileURL = FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString)
+            .appendingPathExtension(fileExtension.isEmpty ? "mp4" : fileExtension)
+
+        try await client.downloadItem(
+            atPath: item.path,
+            to: tempFileURL,
+            progress: nil
+        )
+
+        return tempFileURL
+    }
+
+    private func makeVideoThumbnail(from localURL: URL) async throws -> UIImage {
+        let asset = AVURLAsset(url: localURL)
+        let generator = AVAssetImageGenerator(asset: asset)
+        generator.appliesPreferredTrackTransform = true
+        generator.maximumSize = CGSize(width: 400, height: 400)
+
+        let result = try await generator.image(
+            at: CMTime(seconds: 1, preferredTimescale: 600)
+        )
+
+        return UIImage(cgImage: result.image)
+    }
+
     private func thumbnailCacheKey(for item: SMBItem) -> String {
         let raw = "\(item.path.lowercased())|\(item.size ?? 0)"
         return Data(raw.utf8).base64EncodedString()
             .replacingOccurrences(of: "/", with: "_")
-            .replacingOccurrences(of: "+", with: "-")
+            .replacingOccurrences(of: "+", with: "-"
+            )
     }
 
     private func thumbnailCacheURL(for item: SMBItem) -> URL {

@@ -8,7 +8,7 @@ struct VideoPlayerView: View {
     @Environment(\.dismiss) private var dismiss
     @State private var player: AVPlayer?
     @State private var errorMessage = ""
-    @State private var tempURL: URL?
+    @State private var preparedURL: URL?
 
     var body: some View {
         NavigationStack {
@@ -39,7 +39,7 @@ struct VideoPlayerView: View {
                 ToolbarItem(placement: .topBarLeading) {
                     Button {
                         player?.pause()
-                        cleanupTempFile()
+                        cleanupPreparedVideo()
                         dismiss()
                     } label: {
                         Image(systemName: "xmark.circle.fill")
@@ -52,25 +52,18 @@ struct VideoPlayerView: View {
             }
             .onDisappear {
                 player?.pause()
-                cleanupTempFile()
+                cleanupPreparedVideo()
             }
         }
     }
 
     private func loadVideo() async {
         do {
-            let data = try await smbStore.loadFileData(path: item.path)
-
-            let fileExtension = (item.name as NSString).pathExtension
-            let tempFileURL = FileManager.default.temporaryDirectory
-                .appendingPathComponent(UUID().uuidString)
-                .appendingPathExtension(fileExtension.isEmpty ? "mp4" : fileExtension)
-
-            try data.write(to: tempFileURL, options: .atomic)
+            let url = try await smbStore.prepareVideoForPlayback(for: item)
 
             await MainActor.run {
-                tempURL = tempFileURL
-                player = AVPlayer(url: tempFileURL)
+                preparedURL = url
+                player = AVPlayer(url: url)
                 player?.play()
             }
         } catch {
@@ -80,9 +73,9 @@ struct VideoPlayerView: View {
         }
     }
 
-    private func cleanupTempFile() {
-        guard let tempURL else { return }
-        try? FileManager.default.removeItem(at: tempURL)
-        self.tempURL = nil
+    private func cleanupPreparedVideo() {
+        guard let preparedURL else { return }
+        smbStore.cleanupPreparedVideo(at: preparedURL)
+        self.preparedURL = nil
     }
 }
