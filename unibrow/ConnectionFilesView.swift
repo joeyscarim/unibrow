@@ -84,7 +84,8 @@ struct SMBDirectoryView: View {
     @State private var previewError = ""
     @State private var selectedImageItem: SMBItem?
 
-    private let folderIconColor = Color(red: 0.52, green: 0.78, blue: 1.0)
+    private let folderIconHighlight = Color(red: 0.62, green: 0.84, blue: 1.0)
+    private let folderIconShadow = Color(red: 0.34, green: 0.62, blue: 0.94)
 
     private let columns = Array(
         repeating: GridItem(.flexible(minimum: 90, maximum: 120), spacing: 12, alignment: .top),
@@ -215,9 +216,7 @@ struct SMBDirectoryView: View {
         VStack(spacing: 8) {
             Group {
                 if item.isDirectory {
-                    Image(systemName: "folder.fill")
-                        .font(.system(size: 58))
-                        .foregroundStyle(folderIconColor)
+                    folderIcon(size: 58)
                         .frame(maxWidth: .infinity, maxHeight: .infinity)
                 } else {
                     RoundedRectangle(cornerRadius: 12)
@@ -268,9 +267,7 @@ struct SMBDirectoryView: View {
     @ViewBuilder
     private func thumbnailContent(for item: SMBItem, style: ThumbnailStyle) -> some View {
         if item.isDirectory {
-            Image(systemName: "folder.fill")
-                .font(.system(size: style == .grid ? 58 : 28))
-                .foregroundStyle(folderIconColor)
+            folderIcon(size: style == .grid ? 58 : 28)
 
         } else if let image = smbStore.thumbnails[item.path] {
             switch style {
@@ -328,6 +325,13 @@ struct SMBDirectoryView: View {
                 .font(.system(size: style == .grid ? 30 : 20))
                 .foregroundStyle(.secondary)
         }
+    }
+
+    private func folderIcon(size: CGFloat) -> some View {
+        Image(systemName: "folder.fill")
+            .font(.system(size: size))
+            .symbolRenderingMode(.palette)
+            .foregroundStyle(folderIconHighlight, folderIconShadow)
     }
 
     private func handleTap(on item: SMBItem) {
