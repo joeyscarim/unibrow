@@ -58,6 +58,8 @@ struct SMBDirectoryView: View {
     let title: String
     @Binding var showGrid: Bool
 
+    @State private var directoryItems: [SMBItem] = []
+    @State private var isLoadingDirectory = false
     @State private var selectedVideoItem: SMBItem?
     @State private var previewError = ""
     @State private var selectedImageItem: SMBItem?
@@ -76,14 +78,14 @@ struct SMBDirectoryView: View {
                     Button {
                         showGrid.toggle()
                     } label: {
-                        Image(systemName: showGrid ? "list.bullet" : "square.grid.3x3.fill")
+                        Image(systemName: showGrid ? "list.bullet" : "square.grid.2x2")
                     }
                 }
             }
             .fullScreenCover(item: $selectedImageItem) { tappedItem in
                 ImageGalleryView(
                     smbStore: smbStore,
-                    allItems: smbStore.items,
+                    allItems: directoryItems,
                     selectedItem: tappedItem
                 )
             }
@@ -94,8 +96,11 @@ struct SMBDirectoryView: View {
                 )
             }
             .task(id: path) {
+                isLoadingDirectory = true
+                defer { isLoadingDirectory = false }
+
                 do {
-                    try await smbStore.loadDirectory(path: path)
+                    directoryItems = try await smbStore.directoryItems(at: path)
                 } catch {
                     previewError = error.localizedDescription
                 }
@@ -115,63 +120,71 @@ struct SMBDirectoryView: View {
         if showGrid {
             ScrollView {
                 LazyVGrid(columns: columns, spacing: 12) {
-                    ForEach(smbStore.items) { item in
-                        if item.isDirectory {
-                            NavigationLink {
-                                SMBDirectoryView(
-                                    path: item.path,
-                                    title: item.name,
-                                    showGrid: $showGrid
-                                )
-                            } label: {
-                                gridCellContent(for: item)
-                            }
-                            .buttonStyle(.plain)
-                        } else {
-                            Button {
-                                handleTap(on: item)
-                            } label: {
-                                gridCellContent(for: item)
-                            }
-                            .buttonStyle(.plain)
-                        }
+                    ForEach(directoryItems) { item in
+                        gridRow(for: item)
                     }
                 }
                 .padding(12)
             }
             .overlay {
-                if smbStore.isLoading {
+                if isLoadingDirectory {
                     ProgressView("Loading...")
                 }
             }
         } else {
-            List {
-                ForEach(smbStore.items) { item in
-                    if item.isDirectory {
-                        NavigationLink {
-                            SMBDirectoryView(
-                                path: item.path,
-                                title: item.name,
-                                showGrid: $showGrid
-                            )
-                        } label: {
-                            listRowContent(for: item)
-                        }
-                    } else {
-                        Button {
-                            handleTap(on: item)
-                        } label: {
-                            listRowContent(for: item)
-                        }
-                        .buttonStyle(.plain)
-                    }
-                }
+            List(directoryItems) { item in
+                listRow(for: item)
             }
             .overlay {
-                if smbStore.isLoading {
+                if isLoadingDirectory {
                     ProgressView("Loading...")
                 }
             }
+        }
+    }
+
+    @ViewBuilder
+    private func gridRow(for item: SMBItem) -> some View {
+        if item.isDirectory {
+            NavigationLink {
+                SMBDirectoryView(
+                    path: item.path,
+                    title: item.name,
+                    showGrid: $showGrid
+                )
+            } label: {
+                gridCellContent(for: item)
+            }
+            .buttonStyle(.plain)
+        } else {
+            Button {
+                handleTap(on: item)
+            } label: {
+                gridCellContent(for: item)
+            }
+            .buttonStyle(.plain)
+        }
+    }
+
+    @ViewBuilder
+    private func listRow(for item: SMBItem) -> some View {
+        if item.isDirectory {
+            NavigationLink {
+                SMBDirectoryView(
+                    path: item.path,
+                    title: item.name,
+                    showGrid: $showGrid
+                )
+            } label: {
+                listRowContent(for: item)
+            }
+        } else {
+            Button {
+                handleTap(on: item)
+            } label: {
+                listRowContent(for: item)
+            }
+            .buttonStyle(.plain)
         }
     }
 
@@ -181,50 +194,7 @@ struct SMBDirectoryView: View {
                 .fill(Color(.secondarySystemBackground))
                 .aspectRatio(1, contentMode: .fit)
                 .overlay {
-                    if item.isDirectory {
-                        Image(systemName: "folder.fill")
-                            .font(.system(size: 34))
-                            .foregroundStyle(.blue)
-
-                    } else if let image = smbStore.thumbnails[item.path] {
-                        GeometryReader { proxy in
-                            ZStack {
-                                Image(uiImage: image)
-                                    .resizable()
-                                    .scaledToFill()
-                                    .frame(width: proxy.size.width, height: proxy.size.height)
-                                    .clipped()
-
-                                if smbStore.isVideoFile(item.name) {
-                                    Image(systemName: "play.circle.fill")
-                                        .font(.system(size: 28))
-                                        .foregroundStyle(.white)
-                                        .shadow(radius: 4)
-                                }
-                            }
-                        }
-                        .clipShape(RoundedRectangle(cornerRadius: 12))
-
-                    } else if smbStore.isImageFile(item.name) || smbStore.isVideoFile(item.name) {
-                        ZStack {
-                            ProgressView()
-                                .task {
-                                    await smbStore.loadThumbnail(for: item)
-                                }
-
-                            if smbStore.isVideoFile(item.name) {
-                                Image(systemName: "play.circle.fill")
-                                    .font(.system(size: 22))
-                                    .foregroundStyle(.white)
-                                    .shadow(radius: 4)
-                            }
-                        }
-
-                    } else {
-                        Image(systemName: "doc.fill")
-                            .font(.system(size: 30))
-                            .foregroundStyle(.secondary)
-                    }
+                    thumbnailContent(for: item, style: .grid)
                 }
 
             Text(item.name)
@@ -232,11 +202,15 @@ struct SMBDirectoryView: View {
                 .lineLimit(2)
                 .multilineTextAlignment(.center)
         }
+        .task(id: item.id) {
+            guard smbStore.isImageFile(item.name) || smbStore.isVideoFile(item.name) else { return }
+            await smbStore.loadThumbnail(for: item)
+        }
     }
 
     private func listRowContent(for item: SMBItem) -> some View {
         HStack {
-            leadingIcon(for: item)
+            thumbnailContent(for: item, style: .list)
 
             VStack(alignment: .leading, spacing: 4) {
                 Text(item.name)
@@ -248,52 +222,78 @@ struct SMBDirectoryView: View {
 
             Spacer()
         }
+        .task(id: item.id) {
+            guard smbStore.isImageFile(item.name) || smbStore.isVideoFile(item.name) else { return }
+            await smbStore.loadThumbnail(for: item)
+        }
+    }
+
+    private enum ThumbnailStyle {
+        case grid
+        case list
     }
 
     @ViewBuilder
-    private func leadingIcon(for item: SMBItem) -> some View {
+    private func thumbnailContent(for item: SMBItem, style: ThumbnailStyle) -> some View {
         if item.isDirectory {
             Image(systemName: "folder.fill")
+                .font(.system(size: style == .grid ? 34 : 20))
                 .foregroundStyle(.blue)
 
         } else if let image = smbStore.thumbnails[item.path] {
-            ZStack {
-                Image(uiImage: image)
-                    .resizable()
-                    .scaledToFill()
-                    .frame(width: 40, height: 40)
-                    .clipped()
-                    .clipShape(RoundedRectangle(cornerRadius: 8))
+            switch style {
+            case .grid:
+                GeometryReader { proxy in
+                    ZStack {
+                        Image(uiImage: image)
+                            .resizable()
+                            .scaledToFill()
+                            .frame(width: proxy.size.width, height: proxy.size.height)
+                            .clipped()
 
-                if smbStore.isVideoFile(item.name) {
-                    Image(systemName: "play.circle.fill")
-                        .font(.system(size: 14))
-                        .foregroundStyle(.white)
-                        .shadow(radius: 2)
+                        if smbStore.isVideoFile(item.name) {
+                            Image(systemName: "play.circle.fill")
+                                .font(.system(size: 28))
+                                .foregroundStyle(.white)
+                                .shadow(radius: 4)
+                        }
+                    }
+                }
+                .clipShape(RoundedRectangle(cornerRadius: 12))
+
+            case .list:
+                ZStack {
+                    Image(uiImage: image)
+                        .resizable()
+                        .scaledToFill()
+                        .frame(width: 40, height: 40)
+                        .clipped()
+                        .clipShape(RoundedRectangle(cornerRadius: 8))
+
+                    if smbStore.isVideoFile(item.name) {
+                        Image(systemName: "play.circle.fill")
+                            .font(.system(size: 14))
+                            .foregroundStyle(.white)
+                            .shadow(radius: 2)
+                    }
                 }
             }
 
         } else if smbStore.isImageFile(item.name) || smbStore.isVideoFile(item.name) {
-            RoundedRectangle(cornerRadius: 8)
-                .fill(Color(.secondarySystemBackground))
-                .frame(width: 40, height: 40)
-                .overlay {
-                    ZStack {
-                        ProgressView()
-                            .task {
-                                await smbStore.loadThumbnail(for: item)
-                            }
+            ZStack {
+                ProgressView()
 
-                        if smbStore.isVideoFile(item.name) {
-                            Image(systemName: "play.circle.fill")
-                                .font(.system(size: 14))
-                                .foregroundStyle(.white)
-                        }
-                    }
+                if smbStore.isVideoFile(item.name) {
+                    Image(systemName: "play.circle.fill")
+                        .font(.system(size: style == .grid ? 22 : 14))
+                        .foregroundStyle(.white)
+                        .shadow(radius: style == .grid ? 4 : 0)
                 }
+            }
 
         } else {
             Image(systemName: "doc.fill")
+                .font(.system(size: style == .grid ? 30 : 20))
                 .foregroundStyle(.secondary)
         }
     }

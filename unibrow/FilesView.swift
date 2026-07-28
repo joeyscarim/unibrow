@@ -4,8 +4,7 @@ struct FilesView: View {
     @EnvironmentObject private var savedConnectionsStore: SavedConnectionsStore
 
     var body: some View {
-        NavigationStack {
-            List {
+        List {
                 Section("Saved Connections") {
                     if savedConnectionsStore.connections.isEmpty {
                         ContentUnavailableView(
@@ -48,6 +47,5 @@ struct FilesView: View {
                     }
                 }
             }
-        }
     }
 }

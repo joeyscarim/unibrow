@@ -9,6 +9,7 @@ struct SMBConnection {
     let share: String
     let username: String
     let password: String
+    var useEncryption: Bool = false
 }
 
 struct SMBItem: Identifiable, Hashable {
@@ -24,6 +25,7 @@ enum SMBStoreError: LocalizedError {
     case emptyShare
     case couldNotCreateClient
     case notConnected
+    case thumbnailGenerationFailed
 
     var errorDescription: String? {
         switch self {
@@ -35,6 +37,8 @@ enum SMBStoreError: LocalizedError {
             return "Could not create an SMB connection."
         case .notConnected:
             return "Not connected to an SMB share."
+        case .thumbnailGenerationFailed:
+            return "Could not generate a thumbnail for this video."
         }
     }
 }
@@ -52,14 +56,21 @@ final class SMBStore: ObservableObject {
 
     private let thumbnailMemoryCache = NSCache<NSString, UIImage>()
     private var loadingThumbnailPaths = Set<String>()
+    private let thumbnailLimiter = ThumbnailLoadLimiter()
     private let thumbnailFileManager = FileManager.default
 
+    private static let videoThumbnailChunkSizes: [Int64] = [
+        5 * 1024 * 1024,
+        15 * 1024 * 1024,
+        50 * 1024 * 1024
+    ]
+
+    init() {
+        ProtectedFileStorage.sweepStaleTempVideos()
+    }
+
     private var thumbnailCacheDirectory: URL {
-        let url = URL.cachesDirectory.appendingPathComponent("SMBThumbnailCache", isDirectory: true)
-        if !thumbnailFileManager.fileExists(atPath: url.path) {
-            try? thumbnailFileManager.createDirectory(at: url, withIntermediateDirectories: true)
-        }
-        return url
+        ProtectedFileStorage.thumbnailCacheDirectory
     }
 
     func connect(using savedConnection: SavedConnection) async throws {
@@ -74,7 +85,8 @@ final class SMBStore: ObservableObject {
             host: cleanedHost,
             share: cleanedShare,
             username: cleanedUsername,
-            password: resolvedPassword
+            password: resolvedPassword,
+            useEncryption: savedConnection.useEncryption
         )
 
         try await connect(connection)
@@ -115,15 +127,13 @@ final class SMBStore: ObservableObject {
         isLoading = true
         defer { isLoading = false }
 
-        try await newClient.connectShare(name: cleanedShare)
+        try await newClient.connectShare(name: cleanedShare, encrypted: connection.useEncryption)
 
         client = newClient
         isConnected = true
         currentPath = "/"
         connectionSummary = "\(cleanedHost)/\(cleanedShare)"
         thumbnails = [:]
-
-        try await loadDirectory(path: "/")
     }
 
     func disconnect() async {
@@ -142,16 +152,24 @@ final class SMBStore: ObservableObject {
     }
 
     func loadDirectory(path: String) async throws {
+        let mapped = try await directoryItems(at: path)
+        items = mapped
+        currentPath = path
+    }
+
+    func directoryItems(at path: String) async throws -> [SMBItem] {
         guard let client else {
             throw SMBStoreError.notConnected
         }
 
-        isLoading = true
-        defer { isLoading = false }
-
         let results = try await client.contentsOfDirectory(atPath: path)
+        return Self.mapDirectoryResults(results)
+    }
 
-        let mapped: [SMBItem] = results.compactMap { entry in
+    private static func mapDirectoryResults(
+        _ results: [[URLResourceKey: Any]]
+    ) -> [SMBItem] {
+        results.compactMap { entry in
             guard let name = entry[.nameKey] as? String,
                   let entryPath = entry[.pathKey] as? String,
                   let resourceType = entry[.fileResourceTypeKey] as? URLFileResourceType
@@ -177,9 +195,6 @@ final class SMBStore: ObservableObject {
             }
             return lhs.name.localizedCaseInsensitiveCompare(rhs.name) == .orderedAscending
         }
-
-        items = mapped
-        currentPath = path
     }
 
     func open(_ item: SMBItem) async throws {
@@ -221,18 +236,22 @@ final class SMBStore: ObservableObject {
             return
         }
 
-        if let diskImage = cachedThumbnailFromDisk(for: item) {
+        let cacheURL = thumbnailCacheURL(for: item)
+
+        if let diskImage = await Self.loadThumbnailFromDisk(at: cacheURL) {
             thumbnailMemoryCache.setObject(diskImage, forKey: memoryKey)
             thumbnails[item.path] = diskImage
             return
         }
 
+        await thumbnailLimiter.acquire()
+        defer { Task { await thumbnailLimiter.release() } }
+
         if isImageFile(item.name) {
             do {
                 let data = try await loadFileData(path: item.path)
-                if let image = UIImage(data: data) {
+                if let image = await Self.decodeAndCacheImageThumbnail(from: data, cacheURL: cacheURL) {
                     thumbnailMemoryCache.setObject(image, forKey: memoryKey)
-                    saveThumbnailToDisk(image, for: item)
                     thumbnails[item.path] = image
                 }
             } catch {
@@ -242,13 +261,8 @@ final class SMBStore: ObservableObject {
 
         if isVideoFile(item.name) {
             do {
-                let tempURL = try await prepareLocalVideoFile(for: item)
-                defer { cleanupPreparedVideo(at: tempURL) }
-
-                let image = try await makeVideoThumbnail(from: tempURL)
-
+                let image = try await loadVideoThumbnail(for: item, cacheURL: cacheURL)
                 thumbnailMemoryCache.setObject(image, forKey: memoryKey)
-                saveThumbnailToDisk(image, for: item)
                 thumbnails[item.path] = image
             } catch {
             }
@@ -290,9 +304,8 @@ final class SMBStore: ObservableObject {
             try? thumbnailFileManager.removeItem(at: thumbnailCacheDirectory)
         }
 
-        try? thumbnailFileManager.createDirectory(
-            at: thumbnailCacheDirectory,
-            withIntermediateDirectories: true
+        try? ProtectedFileStorage.ensureDirectory(
+            at: thumbnailCacheDirectory
         )
     }
 
@@ -337,9 +350,7 @@ final class SMBStore: ObservableObject {
         }
 
         let fileExtension = (item.name as NSString).pathExtension
-        let tempFileURL = FileManager.default.temporaryDirectory
-            .appendingPathComponent(UUID().uuidString)
-            .appendingPathExtension(fileExtension.isEmpty ? "mp4" : fileExtension)
+        let tempFileURL = ProtectedFileStorage.makeTempVideoURL(fileExtension: fileExtension)
 
         try await client.downloadItem(
             atPath: item.path,
@@ -347,20 +358,104 @@ final class SMBStore: ObservableObject {
             progress: nil
         )
 
+        try ProtectedFileStorage.applyProtection(at: tempFileURL)
+
         return tempFileURL
     }
 
-    private func makeVideoThumbnail(from localURL: URL) async throws -> UIImage {
-        let asset = AVURLAsset(url: localURL)
-        let generator = AVAssetImageGenerator(asset: asset)
-        generator.appliesPreferredTrackTransform = true
-        generator.maximumSize = CGSize(width: 400, height: 400)
+    private func partialVideoData(for item: SMBItem, maxBytes: Int64) async throws -> Data {
+        guard let client else {
+            throw SMBStoreError.notConnected
+        }
 
-        let result = try await generator.image(
-            at: CMTime(seconds: 1, preferredTimescale: 600)
-        )
+        let fileSize = item.size ?? 0
+        let byteCount: UInt64
 
-        return UIImage(cgImage: result.image)
+        if fileSize > 0 {
+            byteCount = UInt64(min(maxBytes, fileSize))
+        } else {
+            byteCount = UInt64(maxBytes)
+        }
+
+        guard byteCount > 0 else {
+            return Data()
+        }
+
+        return try await client.contents(atPath: item.path, range: 0..<byteCount)
+    }
+
+    private func loadVideoThumbnail(for item: SMBItem, cacheURL: URL) async throws -> UIImage {
+        let fileExtension = (item.name as NSString).pathExtension
+        var lastError: Error?
+
+        for chunkSize in Self.videoThumbnailChunkSizes {
+            do {
+                let data = try await partialVideoData(for: item, maxBytes: chunkSize)
+                let image = try await Self.generateVideoThumbnail(
+                    from: data,
+                    fileExtension: fileExtension,
+                    cacheURL: cacheURL
+                )
+                return image
+            } catch {
+                lastError = error
+
+                if let fileSize = item.size, fileSize > 0, chunkSize >= fileSize {
+                    break
+                }
+            }
+        }
+
+        throw lastError ?? SMBStoreError.thumbnailGenerationFailed
+    }
+
+    private static func loadThumbnailFromDisk(at url: URL) async -> UIImage? {
+        await Task.detached(priority: .utility) {
+            guard FileManager.default.fileExists(atPath: url.path) else { return nil }
+            return UIImage(contentsOfFile: url.path)
+        }.value
+    }
+
+    private static func decodeAndCacheImageThumbnail(from data: Data, cacheURL: URL) async -> UIImage? {
+        await Task.detached(priority: .utility) {
+            guard let image = UIImage(data: data) else { return nil }
+
+            if let jpegData = image.jpegData(compressionQuality: 0.8) {
+                try? ProtectedFileStorage.writeProtectedData(jpegData, to: cacheURL)
+            }
+
+            return image
+        }.value
+    }
+
+    private static func generateVideoThumbnail(
+        from data: Data,
+        fileExtension: String,
+        cacheURL: URL
+    ) async throws -> UIImage {
+        try await Task.detached(priority: .utility) {
+            let tempURL = ProtectedFileStorage.makeTempVideoURL(fileExtension: fileExtension)
+            defer { try? FileManager.default.removeItem(at: tempURL) }
+
+            try ProtectedFileStorage.writeProtectedData(data, to: tempURL)
+
+            let asset = AVURLAsset(url: tempURL)
+            let generator = AVAssetImageGenerator(asset: asset)
+            generator.appliesPreferredTrackTransform = true
+            generator.maximumSize = CGSize(width: 400, height: 400)
+
+            let result = try await generator.image(
+                at: CMTime(seconds: 1, preferredTimescale: 600)
+            )
+
+            let image = UIImage(cgImage: result.image)
+
+            if let jpegData = image.jpegData(compressionQuality: 0.8) {
+                try? ProtectedFileStorage.writeProtectedData(jpegData, to: cacheURL)
+            }
+
+            return image
+        }.value
     }
 
     private func thumbnailCacheKey(for item: SMBItem) -> String {
@@ -376,16 +471,30 @@ final class SMBStore: ObservableObject {
             .appendingPathComponent(thumbnailCacheKey(for: item))
             .appendingPathExtension("jpg")
     }
+}
 
-    private func cachedThumbnailFromDisk(for item: SMBItem) -> UIImage? {
-        let url = thumbnailCacheURL(for: item)
-        guard thumbnailFileManager.fileExists(atPath: url.path) else { return nil }
-        return UIImage(contentsOfFile: url.path)
+actor ThumbnailLoadLimiter {
+    private var inFlight = 0
+    private let limit = 3
+    private var waiters: [CheckedContinuation<Void, Never>] = []
+
+    func acquire() async {
+        if inFlight < limit {
+            inFlight += 1
+            return
+        }
+
+        await withCheckedContinuation { continuation in
+            waiters.append(continuation)
+        }
     }
 
-    private func saveThumbnailToDisk(_ image: UIImage, for item: SMBItem) {
-        let url = thumbnailCacheURL(for: item)
-        guard let data = image.jpegData(compressionQuality: 0.8) else { return }
-        try? data.write(to: url, options: .atomic)
+    func release() {
+        if let next = waiters.first {
+            waiters.removeFirst()
+            next.resume()
+        } else {
+            inFlight = max(0, inFlight - 1)
+        }
     }
 }

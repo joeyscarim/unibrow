@@ -10,6 +10,7 @@ struct AddConnectionView: View {
     @State private var share = ""
     @State private var username = ""
     @State private var password = ""
+    @State private var useEncryption = false
 
     @State private var resultMessage = ""
     @State private var resultIsError = false
@@ -62,6 +63,8 @@ struct AddConnectionView: View {
                     .focused($focusedField, equals: .password)
                     .submitLabel(.done)
                     .onSubmit { focusedField = nil }
+
+                Toggle("Use SMB3 Encryption", isOn: $useEncryption)
             }
 
             Section {
@@ -167,7 +170,8 @@ struct AddConnectionView: View {
             host: trimmedHost,
             share: trimmedShare,
             username: trimmedUsername,
-            password: password
+            password: password,
+            useEncryption: useEncryption
         )
 
         KeychainService.savePassword(password, account: keychainAccount)
@@ -182,7 +186,8 @@ struct AddConnectionView: View {
             host: trimmedHost,
             share: trimmedShare,
             username: trimmedUsername,
-            password: password
+            password: password,
+            useEncryption: useEncryption
         )
 
         Task {

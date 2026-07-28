@@ -1,8 +1,6 @@
 import SwiftUI
 
 struct ContentView: View {
-    @State private var smbStore = SMBStore()
-
     var body: some View {
         TabView {
             NavigationStack {
