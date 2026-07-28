@@ -2,6 +2,7 @@ import Foundation
 import AMSMB2
 import UIKit
 import Combine
+import AVFoundation
 
 struct SMBConnection {
     let host: String
@@ -48,6 +49,18 @@ final class SMBStore: ObservableObject {
     @Published var thumbnails: [String: UIImage] = [:]
 
     private var client: SMB2Manager?
+
+    private let thumbnailMemoryCache = NSCache<NSString, UIImage>()
+    private var loadingThumbnailPaths = Set<String>()
+    private let thumbnailFileManager = FileManager.default
+
+    private var thumbnailCacheDirectory: URL {
+        let url = URL.cachesDirectory.appendingPathComponent("SMBThumbnailCache", isDirectory: true)
+        if !thumbnailFileManager.fileExists(atPath: url.path) {
+            try? thumbnailFileManager.createDirectory(at: url, withIntermediateDirectories: true)
+        }
+        return url
+    }
 
     func connect(using savedConnection: SavedConnection) async throws {
         let cleanedHost = savedConnection.host.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -125,6 +138,7 @@ final class SMBStore: ObservableObject {
         connectionSummary = ""
         items = []
         thumbnails = [:]
+        loadingThumbnailPaths.removeAll()
     }
 
     func loadDirectory(path: String) async throws {
@@ -195,14 +209,72 @@ final class SMBStore: ObservableObject {
 
     func loadThumbnail(for item: SMBItem) async {
         guard thumbnails[item.path] == nil else { return }
-        guard isImageFile(item.name) else { return }
+        guard !loadingThumbnailPaths.contains(item.path) else { return }
 
-        do {
-            let data = try await loadFileData(path: item.path)
-            if let image = UIImage(data: data) {
-                thumbnails[item.path] = image
+        loadingThumbnailPaths.insert(item.path)
+        defer { loadingThumbnailPaths.remove(item.path) }
+
+        let memoryKey = item.path as NSString
+
+        if let cachedImage = thumbnailMemoryCache.object(forKey: memoryKey) {
+            thumbnails[item.path] = cachedImage
+            return
+        }
+
+        if let diskImage = cachedThumbnailFromDisk(for: item) {
+            thumbnailMemoryCache.setObject(diskImage, forKey: memoryKey)
+            thumbnails[item.path] = diskImage
+            return
+        }
+
+        if isImageFile(item.name) {
+            do {
+                let data = try await loadFileData(path: item.path)
+                if let image = UIImage(data: data) {
+                    thumbnailMemoryCache.setObject(image, forKey: memoryKey)
+                    saveThumbnailToDisk(image, for: item)
+                    thumbnails[item.path] = image
+                }
+            } catch {
             }
-        } catch {
+            return
+        }
+
+        if isVideoFile(item.name) {
+            var tempURL: URL?
+
+            do {
+                let data = try await loadFileData(path: item.path)
+                let fileExtension = (item.name as NSString).pathExtension
+
+                let localTempURL = FileManager.default.temporaryDirectory
+                    .appendingPathComponent(UUID().uuidString)
+                    .appendingPathExtension(fileExtension.isEmpty ? "mp4" : fileExtension)
+
+                tempURL = localTempURL
+                try data.write(to: localTempURL, options: .atomic)
+
+                let asset = AVURLAsset(url: localTempURL)
+                let generator = AVAssetImageGenerator(asset: asset)
+                generator.appliesPreferredTrackTransform = true
+                generator.maximumSize = CGSize(width: 400, height: 400)
+
+                let cgImage = try generator.copyCGImage(
+                    at: CMTime(seconds: 1, preferredTimescale: 600),
+                    actualTime: nil
+                )
+
+                let image = UIImage(cgImage: cgImage)
+
+                thumbnailMemoryCache.setObject(image, forKey: memoryKey)
+                saveThumbnailToDisk(image, for: item)
+                thumbnails[item.path] = image
+            } catch {
+            }
+
+            if let tempURL {
+                try? FileManager.default.removeItem(at: tempURL)
+            }
         }
     }
 
@@ -213,5 +285,37 @@ final class SMBStore: ObservableObject {
             || lower.hasSuffix(".jpeg")
             || lower.hasSuffix(".gif")
             || lower.hasSuffix(".webp")
+    }
+
+    func isVideoFile(_ name: String) -> Bool {
+        let lower = name.lowercased()
+        return lower.hasSuffix(".mp4")
+            || lower.hasSuffix(".mov")
+            || lower.hasSuffix(".m4v")
+    }
+
+    private func thumbnailCacheKey(for item: SMBItem) -> String {
+        let raw = "\(item.path.lowercased())|\(item.size ?? 0)"
+        return Data(raw.utf8).base64EncodedString()
+            .replacingOccurrences(of: "/", with: "_")
+            .replacingOccurrences(of: "+", with: "-")
+    }
+
+    private func thumbnailCacheURL(for item: SMBItem) -> URL {
+        thumbnailCacheDirectory
+            .appendingPathComponent(thumbnailCacheKey(for: item))
+            .appendingPathExtension("jpg")
+    }
+
+    private func cachedThumbnailFromDisk(for item: SMBItem) -> UIImage? {
+        let url = thumbnailCacheURL(for: item)
+        guard thumbnailFileManager.fileExists(atPath: url.path) else { return nil }
+        return UIImage(contentsOfFile: url.path)
+    }
+
+    private func saveThumbnailToDisk(_ image: UIImage, for item: SMBItem) {
+        let url = thumbnailCacheURL(for: item)
+        guard let data = image.jpegData(compressionQuality: 0.8) else { return }
+        try? data.write(to: url, options: .atomic)
     }
 }

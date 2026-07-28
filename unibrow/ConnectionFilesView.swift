@@ -4,6 +4,7 @@ struct ConnectionFilesView: View {
     @EnvironmentObject private var smbStore: SMBStore
     let connection: SavedConnection
 
+    @State private var selectedVideoItem: SMBItem?
     @State private var previewError = ""
     @State private var showGrid = true
     @State private var hasAttemptedConnect = false
@@ -38,6 +39,12 @@ struct ConnectionFilesView: View {
                 smbStore: smbStore,
                 allItems: smbStore.items,
                 selectedItem: tappedItem
+            )
+        }
+        .fullScreenCover(item: $selectedVideoItem) { tappedItem in
+            VideoPlayerView(
+                smbStore: smbStore,
+                item: tappedItem
             )
         }
         .task {
@@ -173,20 +180,41 @@ struct ConnectionFilesView: View {
                             Image(systemName: "folder.fill")
                                 .font(.system(size: 34))
                                 .foregroundStyle(.blue)
+
                         } else if let image = smbStore.thumbnails[item.path] {
                             GeometryReader { proxy in
-                                Image(uiImage: image)
-                                    .resizable()
-                                    .scaledToFill()
-                                    .frame(width: proxy.size.width, height: proxy.size.height)
-                                    .clipped()
+                                ZStack {
+                                    Image(uiImage: image)
+                                        .resizable()
+                                        .scaledToFill()
+                                        .frame(width: proxy.size.width, height: proxy.size.height)
+                                        .clipped()
+
+                                    if smbStore.isVideoFile(item.name) {
+                                        Image(systemName: "play.circle.fill")
+                                            .font(.system(size: 28))
+                                            .foregroundStyle(.white)
+                                            .shadow(radius: 4)
+                                    }
+                                }
                             }
                             .clipShape(RoundedRectangle(cornerRadius: 12))
-                        } else if smbStore.isImageFile(item.name) {
-                            ProgressView()
-                                .task {
-                                    await smbStore.loadThumbnail(for: item)
+
+                        } else if smbStore.isImageFile(item.name) || smbStore.isVideoFile(item.name) {
+                            ZStack {
+                                ProgressView()
+                                    .task {
+                                        await smbStore.loadThumbnail(for: item)
+                                    }
+
+                                if smbStore.isVideoFile(item.name) {
+                                    Image(systemName: "play.circle.fill")
+                                        .font(.system(size: 22))
+                                        .foregroundStyle(.white)
+                                        .shadow(radius: 4)
                                 }
+                            }
+
                         } else {
                             Image(systemName: "doc.fill")
                                 .font(.system(size: 30))
@@ -208,23 +236,43 @@ struct ConnectionFilesView: View {
         if item.isDirectory {
             Image(systemName: "folder.fill")
                 .foregroundStyle(.blue)
+
         } else if let image = smbStore.thumbnails[item.path] {
-            Image(uiImage: image)
-                .resizable()
-                .scaledToFill()
-                .frame(width: 40, height: 40)
-                .clipped()
-                .clipShape(RoundedRectangle(cornerRadius: 8))
-        } else if smbStore.isImageFile(item.name) {
+            ZStack {
+                Image(uiImage: image)
+                    .resizable()
+                    .scaledToFill()
+                    .frame(width: 40, height: 40)
+                    .clipped()
+                    .clipShape(RoundedRectangle(cornerRadius: 8))
+
+                if smbStore.isVideoFile(item.name) {
+                    Image(systemName: "play.circle.fill")
+                        .font(.system(size: 14))
+                        .foregroundStyle(.white)
+                        .shadow(radius: 2)
+                }
+            }
+
+        } else if smbStore.isImageFile(item.name) || smbStore.isVideoFile(item.name) {
             RoundedRectangle(cornerRadius: 8)
                 .fill(Color(.secondarySystemBackground))
                 .frame(width: 40, height: 40)
                 .overlay {
-                    ProgressView()
-                        .task {
-                            await smbStore.loadThumbnail(for: item)
+                    ZStack {
+                        ProgressView()
+                            .task {
+                                await smbStore.loadThumbnail(for: item)
+                            }
+
+                        if smbStore.isVideoFile(item.name) {
+                            Image(systemName: "play.circle.fill")
+                                .font(.system(size: 14))
+                                .foregroundStyle(.white)
                         }
+                    }
                 }
+
         } else {
             Image(systemName: "doc.fill")
                 .foregroundStyle(.secondary)
@@ -243,7 +291,14 @@ struct ConnectionFilesView: View {
             return
         }
 
-        guard smbStore.isImageFile(item.name) else { return }
-        selectedImageItem = item
+        if smbStore.isImageFile(item.name) {
+            selectedImageItem = item
+            return
+        }
+
+        if smbStore.isVideoFile(item.name) {
+            selectedVideoItem = item
+            return
+        }
     }
 }
