@@ -5,6 +5,7 @@ struct SettingsView: View {
 
     @State private var showingClearThumbnailCacheConfirmation = false
     @State private var thumbnailCacheSize = "—"
+    @State private var isClearingCache = false
 
     var body: some View {
         NavigationStack {
@@ -30,8 +31,12 @@ struct SettingsView: View {
                     HStack {
                         Label("Thumbnail Cache", systemImage: "internaldrive")
                         Spacer()
-                        Text(thumbnailCacheSize)
-                            .foregroundStyle(.secondary)
+                        if isClearingCache {
+                            ProgressView()
+                        } else {
+                            Text(thumbnailCacheSize)
+                                .foregroundStyle(.secondary)
+                        }
                     }
 
                     Button(role: .destructive) {
@@ -39,12 +44,13 @@ struct SettingsView: View {
                     } label: {
                         Label("Clear Thumbnail Cache", systemImage: "trash")
                     }
+                    .disabled(isClearingCache)
                 }
             }
             .listStyle(.insetGrouped)
             .navigationTitle("Settings")
-            .onAppear {
-                refreshCacheSize()
+            .task {
+                await refreshCacheSize()
             }
             .confirmationDialog(
                 "Clear thumbnail cache?",
@@ -52,8 +58,12 @@ struct SettingsView: View {
                 titleVisibility: .visible
             ) {
                 Button("Clear Cache", role: .destructive) {
-                    smbStore.clearThumbnailCache()
-                    refreshCacheSize()
+                    Task {
+                        isClearingCache = true
+                        await smbStore.clearThumbnailCache()
+                        await refreshCacheSize()
+                        isClearingCache = false
+                    }
                 }
 
                 Button("Cancel", role: .cancel) {
@@ -64,7 +74,7 @@ struct SettingsView: View {
         }
     }
 
-    private func refreshCacheSize() {
-        thumbnailCacheSize = smbStore.formattedThumbnailCacheSize()
+    private func refreshCacheSize() async {
+        thumbnailCacheSize = await smbStore.formattedThumbnailCacheSize()
     }
 }

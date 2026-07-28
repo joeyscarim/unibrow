@@ -60,7 +60,6 @@ final class SMBStore: ObservableObject {
     private let thumbnailMemoryCache = NSCache<NSString, UIImage>()
     private var loadingThumbnailPaths = Set<String>()
     private let thumbnailLimiter = ThumbnailLoadLimiter()
-    private let thumbnailFileManager = FileManager.default
 
     private static let thumbnailMaxPixelSize = 400
     private static let gifFullReadMaxBytes: Int64 = 5 * 1024 * 1024
@@ -95,10 +94,6 @@ final class SMBStore: ObservableObject {
 
     init() {
         ProtectedFileStorage.sweepStaleTempVideos()
-    }
-
-    private var thumbnailCacheDirectory: URL {
-        ProtectedFileStorage.thumbnailCacheDirectory
     }
 
     @discardableResult
@@ -363,51 +358,62 @@ final class SMBStore: ObservableObject {
             || lower.hasSuffix(".m4v")
     }
 
-    func clearThumbnailCache() {
+    private var thumbnailCacheDirectoryURL: URL {
+        URL.cachesDirectory.appendingPathComponent(
+            ProtectedFileStorage.thumbnailCacheDirectoryName,
+            isDirectory: true
+        )
+    }
+
+    func clearThumbnailCache() async {
         thumbnails = [:]
         loadingThumbnailPaths.removeAll()
         thumbnailMemoryCache.removeAllObjects()
 
-        if thumbnailFileManager.fileExists(atPath: thumbnailCacheDirectory.path) {
-            try? thumbnailFileManager.removeItem(at: thumbnailCacheDirectory)
-        }
+        let cacheURL = thumbnailCacheDirectoryURL
 
-        try? ProtectedFileStorage.ensureDirectory(
-            at: thumbnailCacheDirectory
-        )
+        await Task.detached(priority: .utility) {
+            if FileManager.default.fileExists(atPath: cacheURL.path) {
+                try? FileManager.default.removeItem(at: cacheURL)
+            }
+            try? ProtectedFileStorage.ensureDirectory(at: cacheURL)
+        }.value
     }
 
-    func thumbnailCacheSizeInBytes() -> Int64 {
-        let url = thumbnailCacheDirectory
+    func thumbnailCacheSizeInBytes() async -> Int64 {
+        let cacheURL = thumbnailCacheDirectoryURL
 
-        guard thumbnailFileManager.fileExists(atPath: url.path),
-              let enumerator = thumbnailFileManager.enumerator(
-                at: url,
-                includingPropertiesForKeys: [.isDirectoryKey, .fileSizeKey],
-                options: [.skipsHiddenFiles]
-              )
-        else {
-            return 0
-        }
-
-        var totalSize: Int64 = 0
-
-        for case let fileURL as URL in enumerator {
-            guard let values = try? fileURL.resourceValues(forKeys: [.isDirectoryKey, .fileSizeKey]),
-                  values.isDirectory != true
+        return await Task.detached(priority: .utility) {
+            guard FileManager.default.fileExists(atPath: cacheURL.path),
+                  let enumerator = FileManager.default.enumerator(
+                    at: cacheURL,
+                    includingPropertiesForKeys: [.isDirectoryKey, .fileSizeKey],
+                    options: [.skipsHiddenFiles]
+                  )
             else {
-                continue
+                return Int64(0)
             }
 
-            totalSize += Int64(values.fileSize ?? 0)
-        }
+            var totalSize: Int64 = 0
 
-        return totalSize
+            for case let fileURL as URL in enumerator {
+                guard let values = try? fileURL.resourceValues(forKeys: [.isDirectoryKey, .fileSizeKey]),
+                      values.isDirectory != true
+                else {
+                    continue
+                }
+
+                totalSize += Int64(values.fileSize ?? 0)
+            }
+
+            return totalSize
+        }.value
     }
 
-    func formattedThumbnailCacheSize() -> String {
-        ByteCountFormatter.string(
-            fromByteCount: thumbnailCacheSizeInBytes(),
+    func formattedThumbnailCacheSize() async -> String {
+        let bytes = await thumbnailCacheSizeInBytes()
+        return ByteCountFormatter.string(
+            fromByteCount: bytes,
             countStyle: .file
         )
     }
@@ -605,7 +611,7 @@ final class SMBStore: ObservableObject {
     }
 
     private func thumbnailCacheURL(for item: SMBItem) -> URL {
-        thumbnailCacheDirectory
+        thumbnailCacheDirectoryURL
             .appendingPathComponent(thumbnailCacheKey(for: item))
             .appendingPathExtension("jpg")
     }
