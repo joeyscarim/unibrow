@@ -1,11 +1,7 @@
 import Foundation
-import Observation
 import AMSMB2
 import UIKit
-
-import SwiftUI
 import Combine
-
 
 struct SMBConnection {
     let host: String
@@ -43,20 +39,37 @@ enum SMBStoreError: LocalizedError {
 }
 
 @MainActor
-@Observable
 final class SMBStore: ObservableObject {
-    var isConnected = false
-    var isLoading = false
-    var connectionSummary = ""
-    var currentPath = "/"
-    var items: [SMBItem] = []
-    var thumbnails: [String: UIImage] = [:]
+    @Published var isConnected = false
+    @Published var isLoading = false
+    @Published var connectionSummary = ""
+    @Published var currentPath = "/"
+    @Published var items: [SMBItem] = []
+    @Published var thumbnails: [String: UIImage] = [:]
 
     private var client: SMB2Manager?
 
+    func connect(using savedConnection: SavedConnection) async throws {
+        let cleanedHost = savedConnection.host.trimmingCharacters(in: .whitespacesAndNewlines)
+        let cleanedShare = savedConnection.share.trimmingCharacters(in: .whitespacesAndNewlines)
+        let cleanedUsername = savedConnection.username.trimmingCharacters(in: .whitespacesAndNewlines)
+
+        let keychainAccount = "\(cleanedHost)|\(cleanedShare)|\(cleanedUsername)"
+        let resolvedPassword = KeychainService.loadPassword(account: keychainAccount)
+
+        let connection = SMBConnection(
+            host: cleanedHost,
+            share: cleanedShare,
+            username: cleanedUsername,
+            password: resolvedPassword
+        )
+
+        try await connect(connection)
+    }
+
     func connect(_ connection: SMBConnection) async throws {
         let cleanedHost = connection.host
-            .trimmingCharacters(in: CharacterSet.whitespacesAndNewlines)
+            .trimmingCharacters(in: .whitespacesAndNewlines)
             .replacingOccurrences(of: "smb://", with: "")
 
         guard !cleanedHost.isEmpty,
@@ -65,14 +78,19 @@ final class SMBStore: ObservableObject {
         }
 
         let cleanedShare = connection.share
-            .trimmingCharacters(in: CharacterSet.whitespacesAndNewlines)
+            .trimmingCharacters(in: .whitespacesAndNewlines)
 
         guard !cleanedShare.isEmpty else {
             throw SMBStoreError.emptyShare
         }
 
+        let cleanedUsername = connection.username
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+
+        await disconnect()
+
         let credential = URLCredential(
-            user: connection.username,
+            user: cleanedUsername,
             password: connection.password,
             persistence: .forSession
         )
@@ -90,6 +108,7 @@ final class SMBStore: ObservableObject {
         isConnected = true
         currentPath = "/"
         connectionSummary = "\(cleanedHost)/\(cleanedShare)"
+        thumbnails = [:]
 
         try await loadDirectory(path: "/")
     }

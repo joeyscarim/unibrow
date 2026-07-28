@@ -1,35 +1,30 @@
 import SwiftUI
 
 struct FilesView: View {
-    let smbStore: SMBStore
+    @EnvironmentObject private var savedConnectionsStore: SavedConnectionsStore
 
     var body: some View {
         NavigationStack {
             List {
                 Section("Saved Connections") {
-                    // Temporary: your current/single saved connection row
-                    NavigationLink {
-                        ConnectionFilesView(smbStore: smbStore)
-                    } label: {
-                        HStack {
-                            Image(systemName: "externaldrive.connected.to.line.below")
-                                .foregroundStyle(.blue)
+                    if savedConnectionsStore.connections.isEmpty {
+                        ContentUnavailableView(
+                            "No Connections",
+                            systemImage: "externaldrive.badge.questionmark",
+                            description: Text("Add a connection in Settings first.")
+                        )
+                    } else {
+                        ForEach(savedConnectionsStore.connections) { connection in
+                            NavigationLink {
+                                ConnectionFilesView(connection: connection)
+                            } label: {
+                                VStack(alignment: .leading, spacing: 4) {
+                                    Text(connection.name)
 
-                            VStack(alignment: .leading, spacing: 4) {
-                                Text("My SMB Connection")
-
-                                Text(smbStore.currentPath)
-                                    .font(.caption)
-                                    .foregroundStyle(.secondary)
-                                    .lineLimit(1)
-                            }
-
-                            Spacer()
-
-                            if smbStore.isConnected {
-                                Circle()
-                                    .fill(.green)
-                                    .frame(width: 10, height: 10)
+                                    Text("\(connection.host)/\(connection.share)")
+                                        .font(.caption)
+                                        .foregroundStyle(.secondary)
+                                }
                             }
                         }
                     }

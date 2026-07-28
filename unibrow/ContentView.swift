@@ -6,14 +6,14 @@ struct ContentView: View {
     var body: some View {
         TabView {
             NavigationStack {
-                FilesView(smbStore: smbStore)
+                FilesView()
             }
             .tabItem {
                 Label("Files", systemImage: "folder")
             }
 
             NavigationStack {
-                SettingsView(smbStore: smbStore)
+                SettingsView()
             }
             .tabItem {
                 Label("Settings", systemImage: "gearshape")

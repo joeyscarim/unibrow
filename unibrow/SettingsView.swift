@@ -1,7 +1,7 @@
 import SwiftUI
 
 struct SettingsView: View {
-    let smbStore: SMBStore
+    @EnvironmentObject private var smbStore: SMBStore
 
     var body: some View {
         NavigationStack {
