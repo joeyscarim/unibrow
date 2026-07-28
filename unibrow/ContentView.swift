@@ -1,21 +1,24 @@
-//
-//  ContentView.swift
-//  unibrow
-//
-//  Created by Joey Scarim on 7/27/26.
-//
-
 import SwiftUI
 
 struct ContentView: View {
+    @State private var smbStore = SMBStore()
+
     var body: some View {
-        VStack {
-            Image(systemName: "globe")
-                .imageScale(.large)
-                .foregroundStyle(.tint)
-            Text("Hello, world!")
+        TabView {
+            NavigationStack {
+                FilesView(smbStore: smbStore)
+            }
+            .tabItem {
+                Label("Files", systemImage: "folder")
+            }
+
+            NavigationStack {
+                SettingsView(smbStore: smbStore)
+            }
+            .tabItem {
+                Label("Settings", systemImage: "gearshape")
+            }
         }
-        .padding()
     }
 }
 
