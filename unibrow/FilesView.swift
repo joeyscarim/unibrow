@@ -379,7 +379,7 @@ struct ZoomableImageView: View {
 
     var body: some View {
         GeometryReader { proxy in
-            Image(uiImage: image)
+            let fittedImage = Image(uiImage: image)
                 .resizable()
                 .scaledToFit()
                 .scaleEffect(scale)
@@ -389,13 +389,11 @@ struct ZoomableImageView: View {
                     height: max(proxy.size.height, 1)
                 )
                 .contentShape(Rectangle())
+                .background(Color.black)
                 .onTapGesture(count: 2) {
                     withAnimation(.spring()) {
                         if scale > 1 {
-                            scale = 1
-                            baseScale = 1
-                            offset = .zero
-                            baseOffset = .zero
+                            resetZoom()
                         } else {
                             scale = 2
                             baseScale = 2
@@ -410,35 +408,47 @@ struct ZoomableImageView: View {
                         .onEnded { value in
                             baseScale = min(max(baseScale * value, 1), 5)
 
-                            if baseScale <= 1 {
+                            if baseScale <= 1.01 {
                                 withAnimation(.spring()) {
-                                    scale = 1
-                                    baseScale = 1
-                                    offset = .zero
-                                    baseOffset = .zero
+                                    resetZoom()
                                 }
+                            } else {
+                                scale = baseScale
                             }
                         }
                 )
-                .simultaneousGesture(
+
+            if scale > 1.01 {
+                fittedImage.simultaneousGesture(
                     DragGesture()
                         .onChanged { value in
-                            guard scale > 1 else { return }
                             offset = CGSize(
                                 width: baseOffset.width + value.translation.width,
                                 height: baseOffset.height + value.translation.height
                             )
                         }
                         .onEnded { _ in
-                            guard scale > 1 else {
-                                offset = .zero
-                                baseOffset = .zero
-                                return
-                            }
                             baseOffset = offset
                         }
                 )
-                .background(Color.black)
+            } else {
+                fittedImage
+                    .onChange(of: scale) { _, newValue in
+                        if newValue <= 1.01 {
+                            offset = .zero
+                            baseOffset = .zero
+                            scale = 1
+                            baseScale = 1
+                        }
+                    }
+            }
         }
+    }
+
+    private func resetZoom() {
+        scale = 1
+        baseScale = 1
+        offset = .zero
+        baseOffset = .zero
     }
 }
