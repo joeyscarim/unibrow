@@ -55,7 +55,7 @@ final class SMBStore: ObservableObject {
 
     private var client: SMB2Manager?
     private(set) var activeConnectionID: UUID?
-    private var connectionGeneration = 0
+    private var connectionSessionToken: UUID?
 
     private let thumbnailMemoryCache = NSCache<NSString, UIImage>()
     private var loadingThumbnailPaths = Set<String>()
@@ -78,6 +78,21 @@ final class SMBStore: ObservableObject {
         50 * 1024 * 1024
     ]
 
+    private static let hideHiddenFilesKey = "hideHiddenFiles"
+
+    var hideHiddenFiles: Bool {
+        get {
+            if UserDefaults.standard.object(forKey: Self.hideHiddenFilesKey) == nil {
+                return true
+            }
+            return UserDefaults.standard.bool(forKey: Self.hideHiddenFilesKey)
+        }
+        set {
+            UserDefaults.standard.set(newValue, forKey: Self.hideHiddenFilesKey)
+            objectWillChange.send()
+        }
+    }
+
     init() {
         ProtectedFileStorage.sweepStaleTempVideos()
     }
@@ -86,7 +101,12 @@ final class SMBStore: ObservableObject {
         ProtectedFileStorage.thumbnailCacheDirectory
     }
 
-    func connect(using savedConnection: SavedConnection) async throws {
+    @discardableResult
+    func connect(using savedConnection: SavedConnection) async throws -> UUID {
+        if isActiveConnection(savedConnection), let connectionSessionToken {
+            return connectionSessionToken
+        }
+
         let cleanedHost = savedConnection.host.trimmingCharacters(in: .whitespacesAndNewlines)
         let cleanedShare = savedConnection.share.trimmingCharacters(in: .whitespacesAndNewlines)
         let cleanedUsername = savedConnection.username.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -103,11 +123,20 @@ final class SMBStore: ObservableObject {
         )
 
         try await connect(connection)
+
+        let token = UUID()
+        connectionSessionToken = token
         activeConnectionID = savedConnection.id
+        return token
     }
 
     func isActiveConnection(_ connection: SavedConnection) -> Bool {
         isConnected && activeConnectionID == connection.id
+    }
+
+    func disconnect(session token: UUID) async {
+        guard connectionSessionToken == token else { return }
+        await disconnect()
     }
 
     func connect(_ connection: SMBConnection) async throws {
@@ -155,12 +184,11 @@ final class SMBStore: ObservableObject {
     }
 
     func disconnect() async {
-        connectionGeneration += 1
-
         let clientToDisconnect = client
         client = nil
         isConnected = false
         activeConnectionID = nil
+        connectionSessionToken = nil
         currentPath = "/"
         connectionSummary = ""
         items = []
@@ -175,10 +203,6 @@ final class SMBStore: ObservableObject {
         }
     }
 
-    private func isConnectionCurrent(_ generation: Int) -> Bool {
-        generation == connectionGeneration && client != nil
-    }
-
     func loadDirectory(path: String) async throws {
         let mapped = try await directoryItems(at: path)
         items = mapped
@@ -186,21 +210,17 @@ final class SMBStore: ObservableObject {
     }
 
     func directoryItems(at path: String) async throws -> [SMBItem] {
-        let generation = connectionGeneration
         guard let client else {
             throw SMBStoreError.notConnected
         }
 
         let results = try await client.contentsOfDirectory(atPath: path)
-        guard isConnectionCurrent(generation) else {
-            throw SMBStoreError.notConnected
-        }
-
-        return Self.mapDirectoryResults(results)
+        return Self.mapDirectoryResults(results, hideHiddenFiles: hideHiddenFiles)
     }
 
     private static func mapDirectoryResults(
-        _ results: [[URLResourceKey: Any]]
+        _ results: [[URLResourceKey: Any]],
+        hideHiddenFiles: Bool
     ) -> [SMBItem] {
         results.compactMap { entry in
             guard let name = entry[.nameKey] as? String,
@@ -212,6 +232,16 @@ final class SMBStore: ObservableObject {
 
             if name == "." || name == ".." {
                 return nil
+            }
+
+            if hideHiddenFiles {
+                if name.hasPrefix(".") {
+                    return nil
+                }
+
+                if let isHidden = entry[.isHiddenKey] as? Bool, isHidden {
+                    return nil
+                }
             }
 
             return SMBItem(
@@ -248,24 +278,17 @@ final class SMBStore: ObservableObject {
     }
 
     func loadFileData(path: String) async throws -> Data {
-        let generation = connectionGeneration
         guard let client else {
             throw SMBStoreError.notConnected
         }
 
-        let data = try await client.contents(atPath: path)
-        guard isConnectionCurrent(generation) else {
-            throw SMBStoreError.notConnected
-        }
-
-        return data
+        return try await client.contents(atPath: path)
     }
 
     func loadThumbnail(for item: SMBItem) async {
         guard thumbnails[item.path] == nil else { return }
         guard !loadingThumbnailPaths.contains(item.path) else { return }
-
-        let generation = connectionGeneration
+        guard client != nil else { return }
 
         loadingThumbnailPaths.insert(item.path)
         defer { loadingThumbnailPaths.remove(item.path) }
@@ -290,12 +313,12 @@ final class SMBStore: ObservableObject {
             Task { await thumbnailLimiter.release() }
         }
 
-        guard isConnectionCurrent(generation) else { return }
+        guard client != nil else { return }
 
         if isImageFile(item.name) {
             do {
-                let image = try await loadImageThumbnail(for: item, cacheURL: cacheURL, generation: generation)
-                guard isConnectionCurrent(generation) else { return }
+                let image = try await loadImageThumbnail(for: item, cacheURL: cacheURL)
+                guard client != nil else { return }
                 thumbnailMemoryCache.setObject(image, forKey: memoryKey)
                 thumbnails[item.path] = image
             } catch {
@@ -305,8 +328,8 @@ final class SMBStore: ObservableObject {
 
         if isVideoFile(item.name) {
             do {
-                let image = try await loadVideoThumbnail(for: item, cacheURL: cacheURL, generation: generation)
-                guard isConnectionCurrent(generation) else { return }
+                let image = try await loadVideoThumbnail(for: item, cacheURL: cacheURL)
+                guard client != nil else { return }
                 thumbnailMemoryCache.setObject(image, forKey: memoryKey)
                 thumbnails[item.path] = image
             } catch {
@@ -390,7 +413,6 @@ final class SMBStore: ObservableObject {
     }
 
     private func prepareLocalVideoFile(for item: SMBItem) async throws -> URL {
-        let generation = connectionGeneration
         guard let client else {
             throw SMBStoreError.notConnected
         }
@@ -404,7 +426,7 @@ final class SMBStore: ObservableObject {
             progress: nil
         )
 
-        guard isConnectionCurrent(generation) else {
+        guard self.client != nil else {
             try? FileManager.default.removeItem(at: tempFileURL)
             throw SMBStoreError.notConnected
         }
@@ -414,8 +436,8 @@ final class SMBStore: ObservableObject {
         return tempFileURL
     }
 
-    private func partialFileData(for item: SMBItem, maxBytes: Int64, generation: Int) async throws -> Data {
-        guard isConnectionCurrent(generation), let activeClient = client else {
+    private func partialFileData(for item: SMBItem, maxBytes: Int64) async throws -> Data {
+        guard let client else {
             throw SMBStoreError.notConnected
         }
 
@@ -432,25 +454,20 @@ final class SMBStore: ObservableObject {
             return Data()
         }
 
-        let data = try await activeClient.contents(atPath: item.path, range: 0..<byteCount)
-        guard isConnectionCurrent(generation) else {
-            throw SMBStoreError.notConnected
-        }
-
-        return data
+        return try await client.contents(atPath: item.path, range: 0..<byteCount)
     }
 
-    private func loadImageThumbnail(for item: SMBItem, cacheURL: URL, generation: Int) async throws -> UIImage {
+    private func loadImageThumbnail(for item: SMBItem, cacheURL: URL) async throws -> UIImage {
         let chunkSizes = Self.imageThumbnailChunkSizes(for: item)
         var lastError: Error?
 
         for chunkSize in chunkSizes {
-            guard isConnectionCurrent(generation) else {
+            guard client != nil else {
                 throw SMBStoreError.notConnected
             }
 
             do {
-                let data = try await partialFileData(for: item, maxBytes: chunkSize, generation: generation)
+                let data = try await partialFileData(for: item, maxBytes: chunkSize)
 
                 if let image = await Self.downsampleAndCacheImageThumbnail(from: data, cacheURL: cacheURL) {
                     return image
@@ -480,17 +497,17 @@ final class SMBStore: ObservableObject {
         return imageThumbnailChunkSizes
     }
 
-    private func loadVideoThumbnail(for item: SMBItem, cacheURL: URL, generation: Int) async throws -> UIImage {
+    private func loadVideoThumbnail(for item: SMBItem, cacheURL: URL) async throws -> UIImage {
         let fileExtension = (item.name as NSString).pathExtension
         var lastError: Error?
 
         for chunkSize in Self.videoThumbnailChunkSizes {
-            guard isConnectionCurrent(generation) else {
+            guard client != nil else {
                 throw SMBStoreError.notConnected
             }
 
             do {
-                let data = try await partialFileData(for: item, maxBytes: chunkSize, generation: generation)
+                let data = try await partialFileData(for: item, maxBytes: chunkSize)
                 let image = try await Self.generateVideoThumbnail(
                     from: data,
                     fileExtension: fileExtension,

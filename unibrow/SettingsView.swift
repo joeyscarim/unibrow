@@ -17,6 +17,15 @@ struct SettingsView: View {
                     }
                 }
 
+                Section("Browsing") {
+                    Toggle(isOn: Binding(
+                        get: { smbStore.hideHiddenFiles },
+                        set: { smbStore.hideHiddenFiles = $0 }
+                    )) {
+                        Label("Hide Hidden Files", systemImage: "eye.slash")
+                    }
+                }
+
                 Section("Storage") {
                     HStack {
                         Label("Thumbnail Cache", systemImage: "internaldrive")

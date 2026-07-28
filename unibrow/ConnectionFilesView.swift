@@ -35,13 +35,12 @@ struct ConnectionFilesView: View {
             }
         }
         .task(id: connection.id) {
-            var shouldDisconnectOnExit = false
+            var sessionToken: UUID?
+
             defer {
-                if shouldDisconnectOnExit {
+                if let sessionToken {
                     Task { @MainActor in
-                        if smbStore.isActiveConnection(connection) {
-                            await smbStore.disconnect()
-                        }
+                        await smbStore.disconnect(session: sessionToken)
                     }
                 }
             }
@@ -49,7 +48,7 @@ struct ConnectionFilesView: View {
             phase = .connecting
 
             do {
-                try await smbStore.connect(using: connection)
+                sessionToken = try await smbStore.connect(using: connection)
             } catch {
                 if !Task.isCancelled {
                     phase = .failed(error.localizedDescription)
@@ -59,13 +58,10 @@ struct ConnectionFilesView: View {
 
             guard !Task.isCancelled else { return }
 
-            shouldDisconnectOnExit = true
             phase = .connected
 
-            // Stay alive until this view is popped; disconnect in defer.
-            do {
-                try await Task.sleep(nanoseconds: 1_000_000_000_000_000)
-            } catch {
+            while !Task.isCancelled {
+                try? await Task.sleep(nanoseconds: 1_000_000_000)
             }
         }
     }
@@ -127,6 +123,15 @@ struct SMBDirectoryView: View {
                 } catch {
                     guard !Task.isCancelled else { return }
                     previewError = error.localizedDescription
+                }
+            }
+            .onChange(of: smbStore.hideHiddenFiles) { _, _ in
+                Task {
+                    do {
+                        directoryItems = try await smbStore.directoryItems(at: path)
+                    } catch {
+                        previewError = error.localizedDescription
+                    }
                 }
             }
             .alert("Error", isPresented: Binding(
