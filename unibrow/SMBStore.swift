@@ -286,7 +286,9 @@ final class SMBStore: ObservableObject {
         }
 
         await thumbnailLimiter.acquire()
-        defer { Task { await thumbnailLimiter.release() } }
+        defer {
+            Task { await thumbnailLimiter.release() }
+        }
 
         guard isConnectionCurrent(generation) else { return }
 
@@ -413,7 +415,7 @@ final class SMBStore: ObservableObject {
     }
 
     private func partialFileData(for item: SMBItem, maxBytes: Int64, generation: Int) async throws -> Data {
-        guard let client else {
+        guard isConnectionCurrent(generation), let activeClient = client else {
             throw SMBStoreError.notConnected
         }
 
@@ -430,7 +432,7 @@ final class SMBStore: ObservableObject {
             return Data()
         }
 
-        let data = try await client.contents(atPath: item.path, range: 0..<byteCount)
+        let data = try await activeClient.contents(atPath: item.path, range: 0..<byteCount)
         guard isConnectionCurrent(generation) else {
             throw SMBStoreError.notConnected
         }

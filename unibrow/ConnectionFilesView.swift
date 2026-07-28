@@ -35,26 +35,37 @@ struct ConnectionFilesView: View {
             }
         }
         .task(id: connection.id) {
+            var shouldDisconnectOnExit = false
+            defer {
+                if shouldDisconnectOnExit {
+                    Task { @MainActor in
+                        if smbStore.isActiveConnection(connection) {
+                            await smbStore.disconnect()
+                        }
+                    }
+                }
+            }
+
             phase = .connecting
 
             do {
                 try await smbStore.connect(using: connection)
-
-                guard !Task.isCancelled, smbStore.isActiveConnection(connection) else {
-                    return
-                }
-
-                phase = .connected
             } catch {
-                guard !Task.isCancelled else { return }
-                phase = .failed(error.localizedDescription)
-            }
-        }
-        .onDisappear {
-            Task {
-                if smbStore.isActiveConnection(connection) {
-                    await smbStore.disconnect()
+                if !Task.isCancelled {
+                    phase = .failed(error.localizedDescription)
                 }
+                return
+            }
+
+            guard !Task.isCancelled else { return }
+
+            shouldDisconnectOnExit = true
+            phase = .connected
+
+            // Stay alive until this view is popped; disconnect in defer.
+            do {
+                try await Task.sleep(nanoseconds: 1_000_000_000_000_000)
+            } catch {
             }
         }
     }
