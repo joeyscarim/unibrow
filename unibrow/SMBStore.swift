@@ -62,6 +62,7 @@ final class SMBStore: ObservableObject {
 
     private static let thumbnailMaxPixelSize = 400
     private static let gifFullReadMaxBytes: Int64 = 5 * 1024 * 1024
+    private static let imageFullReadMaxBytes: Int64 = 50 * 1024 * 1024
 
     private static let imageThumbnailChunkSizes: [Int64] = [
         256 * 1024,
@@ -458,6 +459,10 @@ final class SMBStore: ObservableObject {
     }
 
     private func loadImageThumbnail(for item: SMBItem, cacheURL: URL) async throws -> UIImage {
+        if Self.imageRequiresFullFile(item.name) {
+            return try await loadFullFileImageThumbnail(for: item, cacheURL: cacheURL)
+        }
+
         let chunkSizes = Self.imageThumbnailChunkSizes(for: item)
         var lastError: Error?
 
@@ -481,27 +486,56 @@ final class SMBStore: ObservableObject {
             }
         }
 
-        if let fileSize = item.size, fileSize > 0, fileSize <= 20 * 1024 * 1024 {
-            do {
-                let data = try await loadFileData(path: item.path)
-                if let image = await Self.downsampleAndCacheImageThumbnail(from: data, cacheURL: cacheURL) {
-                    return image
-                }
-            } catch {
-                lastError = error
-            }
-        } else if item.size == nil || item.size == 0 {
-            do {
-                let data = try await partialFileData(for: item, maxBytes: 20 * 1024 * 1024)
-                if let image = await Self.downsampleAndCacheImageThumbnail(from: data, cacheURL: cacheURL) {
-                    return image
-                }
-            } catch {
-                lastError = error
-            }
+        do {
+            return try await loadFullFileImageThumbnail(for: item, cacheURL: cacheURL)
+        } catch {
+            throw lastError ?? error
+        }
+    }
+
+    private func loadFullFileImageThumbnail(for item: SMBItem, cacheURL: URL) async throws -> UIImage {
+        let data = try await fullFileImageData(for: item)
+
+        if Self.isPNGFile(item.name), !Self.isCompletePNG(data) {
+            throw SMBStoreError.thumbnailGenerationFailed
         }
 
-        throw lastError ?? SMBStoreError.thumbnailGenerationFailed
+        guard let image = await Self.downsampleAndCacheImageThumbnail(from: data, cacheURL: cacheURL) else {
+            throw SMBStoreError.thumbnailGenerationFailed
+        }
+
+        return image
+    }
+
+    private func fullFileImageData(for item: SMBItem) async throws -> Data {
+        if let fileSize = item.size, fileSize > 0 {
+            guard fileSize <= Self.imageFullReadMaxBytes else {
+                throw SMBStoreError.thumbnailGenerationFailed
+            }
+
+            return try await loadFileData(path: item.path)
+        }
+
+        return try await partialFileData(for: item, maxBytes: Self.imageFullReadMaxBytes)
+    }
+
+    private static func imageRequiresFullFile(_ name: String) -> Bool {
+        let lower = name.lowercased()
+        return lower.hasSuffix(".png") || lower.hasSuffix(".webp")
+    }
+
+    private static func isPNGFile(_ name: String) -> Bool {
+        name.lowercased().hasSuffix(".png")
+    }
+
+    private nonisolated static func isCompletePNG(_ data: Data) -> Bool {
+        guard data.count >= 12 else { return false }
+
+        let pngSignature = Data([0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A])
+        guard data.prefix(8) == pngSignature else { return true }
+
+        let iendTrailer = Data([0x00, 0x00, 0x00, 0x00, 0x49, 0x45, 0x4E, 0x44, 0xAE, 0x42, 0x60, 0x82])
+        return data.suffix(12) == iendTrailer
     }
 
     private static func imageThumbnailChunkSizes(for item: SMBItem) -> [Int64] {
@@ -512,6 +546,10 @@ final class SMBStore: ObservableObject {
            fileSize > 0,
            fileSize <= gifFullReadMaxBytes {
             return [fileSize]
+        }
+
+        if imageRequiresFullFile(item.name) {
+            return []
         }
 
         return imageThumbnailChunkSizes
@@ -555,6 +593,13 @@ final class SMBStore: ObservableObject {
 
     private static func downsampleAndCacheImageThumbnail(from data: Data, cacheURL: URL) async -> UIImage? {
         await Task.detached(priority: .utility) {
+            if data.count >= 8 {
+                let pngSignature = Data([0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A])
+                if data.prefix(8) == pngSignature, !isCompletePNG(data) {
+                    return nil
+                }
+            }
+
             let sourceOptions = [
                 kCGImageSourceShouldCache: false,
                 kCGImageSourceShouldCacheImmediately: false
