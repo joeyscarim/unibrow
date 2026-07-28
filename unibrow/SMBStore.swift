@@ -55,7 +55,6 @@ final class SMBStore: ObservableObject {
 
     private var client: SMB2Manager?
     private(set) var activeConnectionID: UUID?
-    private var connectionSessionToken: UUID?
 
     private let thumbnailMemoryCache = NSCache<NSString, UIImage>()
     private var loadingThumbnailPaths = Set<String>()
@@ -96,10 +95,9 @@ final class SMBStore: ObservableObject {
         ProtectedFileStorage.sweepStaleTempVideos()
     }
 
-    @discardableResult
-    func connect(using savedConnection: SavedConnection) async throws -> UUID {
-        if isActiveConnection(savedConnection), let connectionSessionToken {
-            return connectionSessionToken
+    func connect(using savedConnection: SavedConnection) async throws {
+        if isActiveConnection(savedConnection) {
+            return
         }
 
         let cleanedHost = savedConnection.host.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -118,20 +116,12 @@ final class SMBStore: ObservableObject {
         )
 
         try await connect(connection)
-
-        let token = UUID()
-        connectionSessionToken = token
         activeConnectionID = savedConnection.id
-        return token
+        ensureThumbnailCacheDirectory()
     }
 
     func isActiveConnection(_ connection: SavedConnection) -> Bool {
         isConnected && activeConnectionID == connection.id
-    }
-
-    func disconnect(session token: UUID) async {
-        guard connectionSessionToken == token else { return }
-        await disconnect()
     }
 
     func connect(_ connection: SMBConnection) async throws {
@@ -175,7 +165,6 @@ final class SMBStore: ObservableObject {
         isConnected = true
         currentPath = "/"
         connectionSummary = "\(cleanedHost)/\(cleanedShare)"
-        thumbnails = [:]
     }
 
     func disconnect() async {
@@ -183,7 +172,6 @@ final class SMBStore: ObservableObject {
         client = nil
         isConnected = false
         activeConnectionID = nil
-        connectionSessionToken = nil
         currentPath = "/"
         connectionSummary = ""
         items = []
@@ -310,6 +298,8 @@ final class SMBStore: ObservableObject {
 
         guard client != nil else { return }
 
+        ensureThumbnailCacheDirectory()
+
         if isImageFile(item.name) {
             do {
                 let image = try await loadImageThumbnail(for: item, cacheURL: cacheURL)
@@ -363,6 +353,10 @@ final class SMBStore: ObservableObject {
             ProtectedFileStorage.thumbnailCacheDirectoryName,
             isDirectory: true
         )
+    }
+
+    private func ensureThumbnailCacheDirectory() {
+        try? ProtectedFileStorage.ensureDirectory(at: thumbnailCacheDirectoryURL)
     }
 
     func clearThumbnailCache() async {
@@ -484,6 +478,26 @@ final class SMBStore: ObservableObject {
 
             if let fileSize = item.size, fileSize > 0, chunkSize >= fileSize {
                 break
+            }
+        }
+
+        if let fileSize = item.size, fileSize > 0, fileSize <= 20 * 1024 * 1024 {
+            do {
+                let data = try await loadFileData(path: item.path)
+                if let image = await Self.downsampleAndCacheImageThumbnail(from: data, cacheURL: cacheURL) {
+                    return image
+                }
+            } catch {
+                lastError = error
+            }
+        } else if item.size == nil || item.size == 0 {
+            do {
+                let data = try await partialFileData(for: item, maxBytes: 20 * 1024 * 1024)
+                if let image = await Self.downsampleAndCacheImageThumbnail(from: data, cacheURL: cacheURL) {
+                    return image
+                }
+            } catch {
+                lastError = error
             }
         }
 

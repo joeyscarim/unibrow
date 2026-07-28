@@ -35,33 +35,20 @@ struct ConnectionFilesView: View {
             }
         }
         .task(id: connection.id) {
-            var sessionToken: UUID?
-
-            defer {
-                if let sessionToken {
-                    Task { @MainActor in
-                        await smbStore.disconnect(session: sessionToken)
-                    }
-                }
+            if smbStore.isActiveConnection(connection) {
+                phase = .connected
+                return
             }
 
             phase = .connecting
 
             do {
-                sessionToken = try await smbStore.connect(using: connection)
+                try await smbStore.connect(using: connection)
+                guard !Task.isCancelled else { return }
+                phase = .connected
             } catch {
-                if !Task.isCancelled {
-                    phase = .failed(error.localizedDescription)
-                }
-                return
-            }
-
-            guard !Task.isCancelled else { return }
-
-            phase = .connected
-
-            while !Task.isCancelled {
-                try? await Task.sleep(nanoseconds: 1_000_000_000)
+                guard !Task.isCancelled else { return }
+                phase = .failed(error.localizedDescription)
             }
         }
     }

@@ -1,6 +1,6 @@
 import Foundation
 
-struct SavedConnection: Identifiable, Codable, Equatable {
+struct SavedConnection: Identifiable, Codable, Equatable, Hashable {
     let id: UUID
     var name: String
     var host: String

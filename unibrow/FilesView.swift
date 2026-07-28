@@ -2,9 +2,12 @@ import SwiftUI
 
 struct FilesView: View {
     @EnvironmentObject private var savedConnectionsStore: SavedConnectionsStore
+    @EnvironmentObject private var smbStore: SMBStore
+    @State private var navigationPath = NavigationPath()
 
     var body: some View {
-        List {
+        NavigationStack(path: $navigationPath) {
+            List {
                 Section("Saved Connections") {
                     if savedConnectionsStore.connections.isEmpty {
                         ContentUnavailableView(
@@ -14,9 +17,7 @@ struct FilesView: View {
                         )
                     } else {
                         ForEach(savedConnectionsStore.connections) { connection in
-                            NavigationLink {
-                                ConnectionFilesView(connection: connection)
-                            } label: {
+                            NavigationLink(value: connection) {
                                 VStack(alignment: .leading, spacing: 4) {
                                     Text(connection.name)
 
@@ -47,5 +48,16 @@ struct FilesView: View {
                     }
                 }
             }
+            .navigationDestination(for: SavedConnection.self) { connection in
+                ConnectionFilesView(connection: connection)
+            }
+        }
+        .onChange(of: navigationPath.count) { _, count in
+            if count == 0 {
+                Task {
+                    await smbStore.disconnect()
+                }
+            }
+        }
     }
 }
