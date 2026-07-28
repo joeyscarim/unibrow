@@ -2,17 +2,15 @@ import SwiftUI
 
 struct AddConnectionView: View {
     @EnvironmentObject private var savedConnectionsStore: SavedConnectionsStore
+    @EnvironmentObject private var smbStore: SMBStore
     @Environment(\.dismiss) private var dismiss
 
-    @EnvironmentObject private var smbStore: SMBStore
-
     @State private var name = ""
-
-    @AppStorage("smbHost") private var host = ""
-    @AppStorage("smbShare") private var share = ""
-    @AppStorage("smbUsername") private var username = ""
-
+    @State private var host = ""
+    @State private var share = ""
+    @State private var username = ""
     @State private var password = ""
+
     @State private var resultMessage = ""
     @State private var resultIsError = false
 
@@ -119,46 +117,45 @@ struct AddConnectionView: View {
                 }
             }
         }
-        .onAppear {
-            name = defaultConnectionName
-            password = KeychainService.loadPassword(account: keychainAccount)
-        }
-        .onChange(of: host) { _, _ in
-            if name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-                name = defaultConnectionName
-            }
-            password = KeychainService.loadPassword(account: keychainAccount)
-        }
-        .onChange(of: share) { _, _ in
-            if name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-                name = defaultConnectionName
-            }
-            password = KeychainService.loadPassword(account: keychainAccount)
-        }
-        .onChange(of: username) { _, _ in
-            password = KeychainService.loadPassword(account: keychainAccount)
-        }
     }
 
     private var keychainAccount: String {
-        "\(host.trimmingCharacters(in: .whitespacesAndNewlines))|\(share.trimmingCharacters(in: .whitespacesAndNewlines))|\(username.trimmingCharacters(in: .whitespacesAndNewlines))"
+        "\(trimmedHost)|\(trimmedShare)|\(trimmedUsername)"
     }
 
-    private var defaultConnectionName: String {
-        let trimmedHost = host.trimmingCharacters(in: .whitespacesAndNewlines)
-        let trimmedShare = share.trimmingCharacters(in: .whitespacesAndNewlines)
+    private var trimmedName: String {
+        name.trimmingCharacters(in: .whitespacesAndNewlines)
+    }
 
-        if trimmedHost.isEmpty { return "" }
-        if trimmedShare.isEmpty { return trimmedHost }
+    private var trimmedHost: String {
+        host.trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
+    private var trimmedShare: String {
+        share.trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
+    private var trimmedUsername: String {
+        username.trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
+    private var resolvedConnectionName: String {
+        if !trimmedName.isEmpty {
+            return trimmedName
+        }
+
+        if trimmedHost.isEmpty {
+            return ""
+        }
+
+        if trimmedShare.isEmpty {
+            return trimmedHost
+        }
+
         return "\(trimmedHost)/\(trimmedShare)"
     }
 
     private func saveConnection() {
-        let trimmedName = name.trimmingCharacters(in: .whitespacesAndNewlines)
-        let trimmedHost = host.trimmingCharacters(in: .whitespacesAndNewlines)
-        let trimmedShare = share.trimmingCharacters(in: .whitespacesAndNewlines)
-        let trimmedUsername = username.trimmingCharacters(in: .whitespacesAndNewlines)
-
         guard !trimmedHost.isEmpty, !trimmedShare.isEmpty else {
             resultMessage = "Host and share are required."
             resultIsError = true
@@ -166,7 +163,7 @@ struct AddConnectionView: View {
         }
 
         let connection = SavedConnection(
-            name: trimmedName.isEmpty ? trimmedHost : trimmedName,
+            name: resolvedConnectionName,
             host: trimmedHost,
             share: trimmedShare,
             username: trimmedUsername,
@@ -182,9 +179,9 @@ struct AddConnectionView: View {
         resultMessage = ""
 
         let connection = SMBConnection(
-            host: host.trimmingCharacters(in: .whitespacesAndNewlines),
-            share: share.trimmingCharacters(in: .whitespacesAndNewlines),
-            username: username.trimmingCharacters(in: .whitespacesAndNewlines),
+            host: trimmedHost,
+            share: trimmedShare,
+            username: trimmedUsername,
             password: password
         )
 
