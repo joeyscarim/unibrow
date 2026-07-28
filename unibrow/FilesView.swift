@@ -11,7 +11,7 @@ struct FilesView: View {
                         ContentUnavailableView(
                             "No Connections",
                             systemImage: "externaldrive.badge.questionmark",
-                            description: Text("Add a connection in Settings first.")
+                            description: Text("Tap + to add an SMB connection.")
                         )
                     } else {
                         ForEach(savedConnectionsStore.connections) { connection in
@@ -39,6 +39,15 @@ struct FilesView: View {
             }
             .listStyle(.insetGrouped)
             .navigationTitle("Files")
+            .toolbar {
+                ToolbarItem(placement: .topBarTrailing) {
+                    NavigationLink {
+                        AddConnectionView()
+                    } label: {
+                        Image(systemName: "plus")
+                    }
+                }
+            }
         }
     }
 }
