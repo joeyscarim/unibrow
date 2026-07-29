@@ -52,12 +52,14 @@ final class SMBStore: ObservableObject {
     @Published var currentPath = "/"
     @Published var items: [SMBItem] = []
     @Published var thumbnails: [String: UIImage] = [:]
+    @Published private(set) var folderItemCounts: [String: Int] = [:]
 
     private var client: SMB2Manager?
     private(set) var activeConnectionID: UUID?
 
     private let thumbnailMemoryCache = NSCache<NSString, UIImage>()
     private var loadingThumbnailPaths = Set<String>()
+    private var loadingFolderCountPaths = Set<String>()
     private let thumbnailLimiter = ThumbnailLoadLimiter()
 
     private static let thumbnailMaxPixelSize = 400
@@ -88,6 +90,7 @@ final class SMBStore: ObservableObject {
         }
         set {
             UserDefaults.standard.set(newValue, forKey: Self.hideHiddenFilesKey)
+            folderItemCounts = [:]
             objectWillChange.send()
         }
     }
@@ -177,7 +180,9 @@ final class SMBStore: ObservableObject {
         connectionSummary = ""
         items = []
         thumbnails = [:]
+        folderItemCounts = [:]
         loadingThumbnailPaths.removeAll()
+        loadingFolderCountPaths.removeAll()
 
         if let clientToDisconnect {
             do {
@@ -200,6 +205,27 @@ final class SMBStore: ObservableObject {
 
         let results = try await client.contentsOfDirectory(atPath: path)
         return Self.mapDirectoryResults(results, hideHiddenFiles: hideHiddenFiles)
+    }
+
+    func folderItemCountLabel(for path: String) -> String? {
+        guard let count = folderItemCounts[path] else { return nil }
+        return count == 1 ? "1 item" : "\(count) items"
+    }
+
+    func loadFolderItemCount(for item: SMBItem) async {
+        guard item.isDirectory else { return }
+        guard folderItemCounts[item.path] == nil else { return }
+        guard !loadingFolderCountPaths.contains(item.path) else { return }
+        guard client != nil else { return }
+
+        loadingFolderCountPaths.insert(item.path)
+        defer { loadingFolderCountPaths.remove(item.path) }
+
+        do {
+            let items = try await directoryItems(at: item.path)
+            folderItemCounts[item.path] = items.count
+        } catch {
+        }
     }
 
     private static func mapDirectoryResults(

@@ -67,8 +67,7 @@ struct SMBDirectoryView: View {
     @State private var previewError = ""
     @State private var selectedImageItem: SMBItem?
 
-    private let folderIconHighlight = Color(red: 0.62, green: 0.84, blue: 1.0)
-    private let folderIconShadow = Color(red: 0.34, green: 0.62, blue: 0.94)
+    private let filesAppFolderColor = Color(red: 0.39, green: 0.76, blue: 0.97)
 
     private let columns = Array(
         repeating: GridItem(.flexible(minimum: 90, maximum: 120), spacing: 12, alignment: .top),
@@ -172,6 +171,9 @@ struct SMBDirectoryView: View {
                 gridCellContent(for: item)
             }
             .buttonStyle(.plain)
+            .task(id: item.id) {
+                await smbStore.loadFolderItemCount(for: item)
+            }
         } else {
             Button {
                 handleTap(on: item)
@@ -179,6 +181,10 @@ struct SMBDirectoryView: View {
                 gridCellContent(for: item)
             }
             .buttonStyle(.plain)
+            .task(id: item.id) {
+                guard smbStore.isImageFile(item.name) || smbStore.isVideoFile(item.name) else { return }
+                await smbStore.loadThumbnail(for: item)
+            }
         }
     }
 
@@ -204,30 +210,35 @@ struct SMBDirectoryView: View {
         }
     }
 
+    @ViewBuilder
     private func gridCellContent(for item: SMBItem) -> some View {
-        VStack(spacing: 8) {
-            Group {
-                if item.isDirectory {
-                    folderIcon(size: 58)
-                        .frame(maxWidth: .infinity, maxHeight: .infinity)
-                } else {
-                    RoundedRectangle(cornerRadius: 12)
-                        .fill(Color(.secondarySystemBackground))
-                        .overlay {
-                            thumbnailContent(for: item, style: .grid)
-                        }
-                }
-            }
-            .aspectRatio(1, contentMode: .fit)
+        if item.isDirectory {
+            VStack(spacing: 4) {
+                filesAppFolderIcon(size: 64)
+                    .padding(.top, 8)
 
-            Text(item.name)
-                .font(.caption)
-                .lineLimit(2)
-                .multilineTextAlignment(.center)
-        }
-        .task(id: item.id) {
-            guard smbStore.isImageFile(item.name) || smbStore.isVideoFile(item.name) else { return }
-            await smbStore.loadThumbnail(for: item)
+                Text(item.name)
+                    .font(.subheadline)
+                    .lineLimit(2)
+                    .multilineTextAlignment(.center)
+
+                FolderItemCountLabel(item: item)
+            }
+            .frame(maxWidth: .infinity)
+        } else {
+            VStack(spacing: 8) {
+                RoundedRectangle(cornerRadius: 12)
+                    .fill(Color(.secondarySystemBackground))
+                    .overlay {
+                        thumbnailContent(for: item, style: .grid)
+                    }
+                    .aspectRatio(1, contentMode: .fit)
+
+                Text(item.name)
+                    .font(.caption)
+                    .lineLimit(2)
+                    .multilineTextAlignment(.center)
+            }
         }
     }
 
@@ -238,16 +249,23 @@ struct SMBDirectoryView: View {
             VStack(alignment: .leading, spacing: 4) {
                 Text(item.name)
 
-                Text(item.path)
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
+                if item.isDirectory {
+                    FolderItemCountLabel(item: item)
+                } else {
+                    Text(item.path)
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
             }
 
             Spacer()
         }
         .task(id: item.id) {
-            guard smbStore.isImageFile(item.name) || smbStore.isVideoFile(item.name) else { return }
-            await smbStore.loadThumbnail(for: item)
+            if item.isDirectory {
+                await smbStore.loadFolderItemCount(for: item)
+            } else if smbStore.isImageFile(item.name) || smbStore.isVideoFile(item.name) {
+                await smbStore.loadThumbnail(for: item)
+            }
         }
     }
 
@@ -259,7 +277,7 @@ struct SMBDirectoryView: View {
     @ViewBuilder
     private func thumbnailContent(for item: SMBItem, style: ThumbnailStyle) -> some View {
         if item.isDirectory {
-            folderIcon(size: style == .grid ? 58 : 28)
+            filesAppFolderIcon(size: style == .grid ? 64 : 28)
 
         } else if let image = smbStore.thumbnails[item.path] {
             switch style {
@@ -319,11 +337,10 @@ struct SMBDirectoryView: View {
         }
     }
 
-    private func folderIcon(size: CGFloat) -> some View {
+    private func filesAppFolderIcon(size: CGFloat) -> some View {
         Image(systemName: "folder.fill")
             .font(.system(size: size))
-            .symbolRenderingMode(.palette)
-            .foregroundStyle(folderIconHighlight, folderIconShadow)
+            .foregroundStyle(filesAppFolderColor)
     }
 
     private func handleTap(on item: SMBItem) {
@@ -336,5 +353,20 @@ struct SMBDirectoryView: View {
             selectedVideoItem = item
             return
         }
+    }
+}
+
+private struct FolderItemCountLabel: View {
+    @EnvironmentObject private var smbStore: SMBStore
+    let item: SMBItem
+
+    var body: some View {
+        Group {
+            if let label = smbStore.folderItemCountLabel(for: item.path) {
+                Text(label)
+            }
+        }
+        .font(.caption)
+        .foregroundStyle(.secondary)
     }
 }
