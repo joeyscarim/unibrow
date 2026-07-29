@@ -2,6 +2,7 @@ import Foundation
 
 enum ProtectedFileStorage {
     static let fileProtection: FileProtectionType = .completeUnlessOpen
+    static let thumbnailCacheProtection: FileProtectionType = .complete
     static let tempVideoDirectoryName = "SMBTempVideos"
     static let thumbnailCacheDirectoryName = "SMBThumbnailCache"
 
@@ -22,6 +23,31 @@ enum ProtectedFileStorage {
     static func writeProtectedData(_ data: Data, to url: URL) throws {
         try data.write(to: url, options: .atomic)
         try applyProtection(at: url)
+    }
+
+    static func ensureThumbnailCacheDirectory(at url: URL) throws {
+        if !FileManager.default.fileExists(atPath: url.path) {
+            try FileManager.default.createDirectory(at: url, withIntermediateDirectories: true)
+        }
+
+        try FileManager.default.setAttributes(
+            [.protectionKey: thumbnailCacheProtection],
+            ofItemAtPath: url.path
+        )
+    }
+
+    static func writeEncryptedThumbnail(_ jpegData: Data, to url: URL) throws {
+        let encrypted = try ThumbnailCacheEncryption.encrypt(jpegData)
+        try encrypted.write(to: url, options: .atomic)
+        try FileManager.default.setAttributes(
+            [.protectionKey: thumbnailCacheProtection],
+            ofItemAtPath: url.path
+        )
+    }
+
+    static func readEncryptedThumbnail(from url: URL) throws -> Data {
+        let encrypted = try Data(contentsOf: url)
+        return try ThumbnailCacheEncryption.decrypt(encrypted)
     }
 
     static var tempVideoDirectory: URL {

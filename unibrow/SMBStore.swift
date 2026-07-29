@@ -62,7 +62,7 @@ final class SMBStore: ObservableObject {
     private var loadingFolderCountPaths = Set<String>()
     private let thumbnailLimiter = ThumbnailLoadLimiter()
 
-    private static let thumbnailMaxPixelSize = 400
+    private static let thumbnailMaxPixelSize = 200
     private static let gifFullReadMaxBytes: Int64 = 5 * 1024 * 1024
     private static let imageFullReadMaxBytes: Int64 = 50 * 1024 * 1024
 
@@ -383,7 +383,7 @@ final class SMBStore: ObservableObject {
     }
 
     private func ensureThumbnailCacheDirectory() {
-        try? ProtectedFileStorage.ensureDirectory(at: thumbnailCacheDirectoryURL)
+        try? ProtectedFileStorage.ensureThumbnailCacheDirectory(at: thumbnailCacheDirectoryURL)
     }
 
     func clearThumbnailCache() async {
@@ -397,7 +397,7 @@ final class SMBStore: ObservableObject {
             if FileManager.default.fileExists(atPath: cacheURL.path) {
                 try? FileManager.default.removeItem(at: cacheURL)
             }
-            try? ProtectedFileStorage.ensureDirectory(at: cacheURL)
+            try? ProtectedFileStorage.ensureThumbnailCacheDirectory(at: cacheURL)
         }.value
     }
 
@@ -613,6 +613,13 @@ final class SMBStore: ObservableObject {
     private static func loadThumbnailFromDisk(at url: URL) async -> UIImage? {
         await Task.detached(priority: .utility) {
             guard FileManager.default.fileExists(atPath: url.path) else { return nil }
+
+            if let decrypted = try? ProtectedFileStorage.readEncryptedThumbnail(from: url),
+               let image = UIImage(data: decrypted) {
+                return image
+            }
+
+            // Legacy unencrypted JPEG cache entries.
             return UIImage(contentsOfFile: url.path)
         }.value
     }
@@ -650,7 +657,7 @@ final class SMBStore: ObservableObject {
             let image = UIImage(cgImage: cgImage)
 
             if let jpegData = image.jpegData(compressionQuality: 0.8) {
-                try? ProtectedFileStorage.writeProtectedData(jpegData, to: cacheURL)
+                try? ProtectedFileStorage.writeEncryptedThumbnail(jpegData, to: cacheURL)
             }
 
             return image
@@ -671,7 +678,7 @@ final class SMBStore: ObservableObject {
             let asset = AVURLAsset(url: tempURL)
             let generator = AVAssetImageGenerator(asset: asset)
             generator.appliesPreferredTrackTransform = true
-            generator.maximumSize = CGSize(width: 400, height: 400)
+            generator.maximumSize = CGSize(width: thumbnailMaxPixelSize, height: thumbnailMaxPixelSize)
 
             let result = try await generator.image(
                 at: CMTime(seconds: 1, preferredTimescale: 600)
@@ -680,7 +687,7 @@ final class SMBStore: ObservableObject {
             let image = UIImage(cgImage: result.image)
 
             if let jpegData = image.jpegData(compressionQuality: 0.8) {
-                try? ProtectedFileStorage.writeProtectedData(jpegData, to: cacheURL)
+                try? ProtectedFileStorage.writeEncryptedThumbnail(jpegData, to: cacheURL)
             }
 
             return image
@@ -698,7 +705,7 @@ final class SMBStore: ObservableObject {
     private func thumbnailCacheURL(for item: SMBItem) -> URL {
         thumbnailCacheDirectoryURL
             .appendingPathComponent(thumbnailCacheKey(for: item))
-            .appendingPathExtension("jpg")
+            .appendingPathExtension("thumb")
     }
 }
 
