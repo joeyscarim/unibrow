@@ -60,7 +60,7 @@ enum ProtectedFileStorage {
     static var thumbnailCacheDirectory: URL {
         let url = URL.cachesDirectory
             .appendingPathComponent(thumbnailCacheDirectoryName, isDirectory: true)
-        try? ensureDirectory(at: url)
+        try? ensureThumbnailCacheDirectory(at: url)
         return url
     }
 

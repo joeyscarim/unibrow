@@ -56,6 +56,7 @@ final class SMBStore: ObservableObject {
 
     private var client: SMB2Manager?
     private(set) var activeConnectionID: UUID?
+    private var activeThumbnailCacheNamespace = ""
 
     private let thumbnailMemoryCache = NSCache<NSString, UIImage>()
     private var loadingThumbnailPaths = Set<String>()
@@ -121,6 +122,7 @@ final class SMBStore: ObservableObject {
 
         try await connect(connection)
         activeConnectionID = savedConnection.id
+        activeThumbnailCacheNamespace = savedConnection.id.uuidString
         ensureThumbnailCacheDirectory()
     }
 
@@ -169,6 +171,10 @@ final class SMBStore: ObservableObject {
         isConnected = true
         currentPath = "/"
         connectionSummary = "\(cleanedHost)/\(cleanedShare)"
+
+        if activeThumbnailCacheNamespace.isEmpty {
+            activeThumbnailCacheNamespace = "\(cleanedHost.lowercased())|\(cleanedShare.lowercased())"
+        }
     }
 
     func disconnect() async {
@@ -176,6 +182,7 @@ final class SMBStore: ObservableObject {
         client = nil
         isConnected = false
         activeConnectionID = nil
+        activeThumbnailCacheNamespace = ""
         currentPath = "/"
         connectionSummary = ""
         items = []
@@ -296,17 +303,18 @@ final class SMBStore: ObservableObject {
     }
 
     func loadThumbnail(for item: SMBItem) async {
-        guard thumbnails[item.path] == nil else { return }
+        let cacheKey = thumbnailCacheKey(for: item)
+        guard thumbnails[cacheKey] == nil else { return }
         guard !loadingThumbnailPaths.contains(item.path) else { return }
         guard client != nil else { return }
 
         loadingThumbnailPaths.insert(item.path)
         defer { loadingThumbnailPaths.remove(item.path) }
 
-        let memoryKey = item.path as NSString
+        let memoryKey = cacheKey as NSString
 
         if let cachedImage = thumbnailMemoryCache.object(forKey: memoryKey) {
-            thumbnails[item.path] = cachedImage
+            thumbnails[cacheKey] = cachedImage
             return
         }
 
@@ -314,7 +322,7 @@ final class SMBStore: ObservableObject {
 
         if let diskImage = await Self.loadThumbnailFromDisk(at: cacheURL) {
             thumbnailMemoryCache.setObject(diskImage, forKey: memoryKey)
-            thumbnails[item.path] = diskImage
+            thumbnails[cacheKey] = diskImage
             return
         }
 
@@ -332,7 +340,7 @@ final class SMBStore: ObservableObject {
                 let image = try await loadImageThumbnail(for: item, cacheURL: cacheURL)
                 guard client != nil else { return }
                 thumbnailMemoryCache.setObject(image, forKey: memoryKey)
-                thumbnails[item.path] = image
+                thumbnails[cacheKey] = image
             } catch {
             }
             return
@@ -343,7 +351,7 @@ final class SMBStore: ObservableObject {
                 let image = try await loadVideoThumbnail(for: item, cacheURL: cacheURL)
                 guard client != nil else { return }
                 thumbnailMemoryCache.setObject(image, forKey: memoryKey)
-                thumbnails[item.path] = image
+                thumbnails[cacheKey] = image
             } catch {
             }
 
@@ -375,6 +383,10 @@ final class SMBStore: ObservableObject {
             || lower.hasSuffix(".m4v")
     }
 
+    func thumbnail(for item: SMBItem) -> UIImage? {
+        thumbnails[thumbnailCacheKey(for: item)]
+    }
+
     private var thumbnailCacheDirectoryURL: URL {
         URL.cachesDirectory.appendingPathComponent(
             ProtectedFileStorage.thumbnailCacheDirectoryName,
@@ -399,6 +411,8 @@ final class SMBStore: ObservableObject {
             }
             try? ProtectedFileStorage.ensureThumbnailCacheDirectory(at: cacheURL)
         }.value
+
+        // Encryption key in Keychain is intentionally unchanged — one key per install, reused for new thumbnails.
     }
 
     func thumbnailCacheSizeInBytes() async -> Int64 {
@@ -695,7 +709,10 @@ final class SMBStore: ObservableObject {
     }
 
     private func thumbnailCacheKey(for item: SMBItem) -> String {
-        let raw = "\(item.path.lowercased())|\(item.size ?? 0)"
+        let namespace = activeThumbnailCacheNamespace.isEmpty
+            ? connectionSummary.lowercased()
+            : activeThumbnailCacheNamespace
+        let raw = "\(namespace)|\(item.path.lowercased())|\(item.size ?? 0)"
         return Data(raw.utf8).base64EncodedString()
             .replacingOccurrences(of: "/", with: "_")
             .replacingOccurrences(of: "+", with: "-"

@@ -277,7 +277,7 @@ struct SMBDirectoryView: View {
         if item.isDirectory {
             filesAppFolderIcon(for: item, size: style == .grid ? 76 : 34)
 
-        } else if let image = smbStore.thumbnails[item.path] {
+        } else if let image = smbStore.thumbnail(for: item) {
             switch style {
             case .grid:
                 GeometryReader { proxy in

@@ -3,8 +3,8 @@ import Foundation
 import Security
 
 enum ThumbnailCacheEncryption {
-    private static let keychainService = "com.joeyscarim.unibrow.thumbnail-cache"
-    private static let keychainAccount = "encryption-key"
+    /// One AES key per app install. Created on first encrypt; reused forever unless the app is deleted.
+    /// Clearing the thumbnail cache deletes files only — this key is not rotated or duplicated.
 
     static func encrypt(_ plaintext: Data) throws -> Data {
         let sealed = try AES.GCM.seal(plaintext, using: try symmetricKey())
@@ -31,10 +31,53 @@ enum ThumbnailCacheEncryption {
     }
 
     private static func loadKeyData() -> Data? {
+        if let data = readKeyData(
+            service: KeychainIdentifiers.service,
+            account: KeychainIdentifiers.thumbnailEncryptionAccount
+        ) {
+            return data
+        }
+
+        if let legacyData = readKeyData(
+            service: KeychainIdentifiers.legacyThumbnailService,
+            account: KeychainIdentifiers.legacyThumbnailAccount
+        ) {
+            try? saveKeyData(legacyData)
+            deleteKeyData(
+                service: KeychainIdentifiers.legacyThumbnailService,
+                account: KeychainIdentifiers.legacyThumbnailAccount
+            )
+            return legacyData
+        }
+
+        return nil
+    }
+
+    private static func saveKeyData(_ data: Data) throws {
+        deleteKeyData(
+            service: KeychainIdentifiers.service,
+            account: KeychainIdentifiers.thumbnailEncryptionAccount
+        )
+
+        let attributes: [String: Any] = [
+            kSecClass as String: kSecClassGenericPassword,
+            kSecAttrService as String: KeychainIdentifiers.service,
+            kSecAttrAccount as String: KeychainIdentifiers.thumbnailEncryptionAccount,
+            kSecValueData as String: data,
+            kSecAttrAccessible as String: kSecAttrAccessibleWhenUnlockedThisDeviceOnly
+        ]
+
+        let status = SecItemAdd(attributes as CFDictionary, nil)
+        guard status == errSecSuccess else {
+            throw CacheEncryptionError.keyStorageFailed
+        }
+    }
+
+    private static func readKeyData(service: String, account: String) -> Data? {
         let query: [String: Any] = [
             kSecClass as String: kSecClassGenericPassword,
-            kSecAttrService as String: keychainService,
-            kSecAttrAccount as String: keychainAccount,
+            kSecAttrService as String: service,
+            kSecAttrAccount as String: account,
             kSecReturnData as String: true,
             kSecMatchLimit as String: kSecMatchLimitOne
         ]
@@ -49,27 +92,14 @@ enum ThumbnailCacheEncryption {
         return data
     }
 
-    private static func saveKeyData(_ data: Data) throws {
+    private static func deleteKeyData(service: String, account: String) {
         let query: [String: Any] = [
             kSecClass as String: kSecClassGenericPassword,
-            kSecAttrService as String: keychainService,
-            kSecAttrAccount as String: keychainAccount
+            kSecAttrService as String: service,
+            kSecAttrAccount as String: account
         ]
 
         SecItemDelete(query as CFDictionary)
-
-        let attributes: [String: Any] = [
-            kSecClass as String: kSecClassGenericPassword,
-            kSecAttrService as String: keychainService,
-            kSecAttrAccount as String: keychainAccount,
-            kSecValueData as String: data,
-            kSecAttrAccessible as String: kSecAttrAccessibleWhenUnlockedThisDeviceOnly
-        ]
-
-        let status = SecItemAdd(attributes as CFDictionary, nil)
-        guard status == errSecSuccess else {
-            throw CacheEncryptionError.keyStorageFailed
-        }
     }
 }
 
