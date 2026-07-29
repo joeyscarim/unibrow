@@ -28,7 +28,9 @@ struct ImageGalleryView: View {
     var body: some View {
         NavigationStack {
             ZStack {
-                Color.black.ignoresSafeArea()
+                Color.black
+                    .ignoresSafeArea()
+                    .opacity(1 - min(dismissDragOffset / 500, 0.55))
 
                 if imageItems.isEmpty {
                     ContentUnavailableView(
@@ -65,15 +67,12 @@ struct ImageGalleryView: View {
                     }
                 }
             }
-            .offset(y: dismissDragOffset)
-            .opacity(1 - min(dismissDragOffset / 500, 0.45))
+            .toolbarColorScheme(.dark, for: .navigationBar)
+            .toolbar(dismissDragOffset > 0 ? .hidden : .visible, for: .navigationBar)
             .toolbar {
-                ToolbarItem(placement: .topBarLeading) {
-                    Button {
+                ToolbarItem(placement: .cancellationAction) {
+                    Button(role: .cancel) {
                         dismiss()
-                    } label: {
-                        Image(systemName: "xmark.circle.fill")
-                            .foregroundStyle(.white)
                     }
                 }
 
@@ -272,7 +271,7 @@ private struct ZoomablePagedImageView: View {
                                 )
                             } else if isDismissDrag(value.translation) {
                                 onDismissDrag(value.translation.height)
-                            } else {
+                            } else if abs(value.translation.width) > abs(value.translation.height) {
                                 onPageDrag(value.translation.width)
                             }
                         }
@@ -284,7 +283,7 @@ private struct ZoomablePagedImageView: View {
                                     value.translation.height,
                                     value.predictedEndTranslation.height
                                 )
-                            } else {
+                            } else if abs(value.translation.width) > abs(value.translation.height) {
                                 onPageDragEnded(
                                     value.translation.width,
                                     value.predictedEndTranslation.width

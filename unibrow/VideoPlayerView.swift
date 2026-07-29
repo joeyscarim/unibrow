@@ -35,15 +35,13 @@ struct VideoPlayerView: View {
             }
             .navigationTitle(item.name)
             .navigationBarTitleDisplayMode(.inline)
+            .toolbarColorScheme(.dark, for: .navigationBar)
             .toolbar {
-                ToolbarItem(placement: .topBarLeading) {
-                    Button {
+                ToolbarItem(placement: .cancellationAction) {
+                    Button(role: .cancel) {
                         player?.pause()
                         cleanupPreparedVideo()
                         dismiss()
-                    } label: {
-                        Image(systemName: "xmark.circle.fill")
-                            .foregroundStyle(.white)
                     }
                 }
             }
