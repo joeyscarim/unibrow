@@ -360,13 +360,14 @@ private struct FolderItemCountLabel: View {
     @EnvironmentObject private var smbStore: SMBStore
     let item: SMBItem
 
+    private var label: String? {
+        smbStore.folderItemCountLabel(for: item.path)
+    }
+
     var body: some View {
-        Group {
-            if let label = smbStore.folderItemCountLabel(for: item.path) {
-                Text(label)
-            }
-        }
-        .font(.caption)
-        .foregroundStyle(.secondary)
+        Text(label ?? "0 items")
+            .font(.caption)
+            .foregroundStyle(label == nil ? .clear : .secondary)
+            .accessibilityLabel(label ?? "Loading item count")
     }
 }
