@@ -1,6 +1,8 @@
-# unibrow
-
-A native iOS SMB file browser. Browse shares on your network, view images and videos, and manage saved connections — with security considered at each layer.
+<div align="center">
+  <img src="docs/app-icon.png" alt="Unibrow app icon" width="128">
+  <h1>Unibrow</h1>
+  <p>A native iOS SMB file browser. Browse shares on your network, view images and videos, and manage saved connections — with security considered at each layer.</p>
+</div>
 
 ## Security overview
 
