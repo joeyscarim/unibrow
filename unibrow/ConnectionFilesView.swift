@@ -67,8 +67,6 @@ struct SMBDirectoryView: View {
     @State private var previewError = ""
     @State private var selectedImageItem: SMBItem?
 
-    private let filesAppFolderColor = Color(red: 0.39, green: 0.76, blue: 0.97)
-
     private let columns = Array(
         repeating: GridItem(.flexible(minimum: 90, maximum: 120), spacing: 12, alignment: .top),
         count: 3
@@ -214,7 +212,7 @@ struct SMBDirectoryView: View {
     private func gridCellContent(for item: SMBItem) -> some View {
         if item.isDirectory {
             VStack(spacing: 4) {
-                filesAppFolderIcon(size: 64)
+                filesAppFolderIcon(for: item, size: 64)
                     .padding(.top, 8)
 
                 Text(item.name)
@@ -277,7 +275,7 @@ struct SMBDirectoryView: View {
     @ViewBuilder
     private func thumbnailContent(for item: SMBItem, style: ThumbnailStyle) -> some View {
         if item.isDirectory {
-            filesAppFolderIcon(size: style == .grid ? 64 : 28)
+            filesAppFolderIcon(for: item, size: style == .grid ? 64 : 28)
 
         } else if let image = smbStore.thumbnails[item.path] {
             switch style {
@@ -337,10 +335,15 @@ struct SMBDirectoryView: View {
         }
     }
 
-    private func filesAppFolderIcon(size: CGFloat) -> some View {
-        Image(systemName: "folder.fill")
-            .font(.system(size: size))
-            .foregroundStyle(filesAppFolderColor)
+    private func filesAppFolderIcon(for item: SMBItem, size: CGFloat) -> some View {
+        let count = smbStore.folderItemCounts[item.path]
+        let isFull = (count ?? 0) > 0
+
+        return Image(isFull ? "FolderIconFull" : "FolderIconEmpty")
+            .resizable()
+            .scaledToFit()
+            .frame(width: size, height: size)
+            .animation(.easeInOut(duration: 0.15), value: isFull)
     }
 
     private func handleTap(on item: SMBItem) {
