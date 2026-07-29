@@ -25,6 +25,13 @@ struct ConnectionFilesView: View {
                     title: connection.name,
                     showGrid: $showGrid
                 )
+                .navigationDestination(for: SMBDirectoryDestination.self) { destination in
+                    SMBDirectoryView(
+                        path: destination.path,
+                        title: destination.title,
+                        showGrid: $showGrid
+                    )
+                }
 
             case .failed(let message):
                 ContentUnavailableView(
@@ -54,6 +61,11 @@ struct ConnectionFilesView: View {
     }
 }
 
+struct SMBDirectoryDestination: Hashable {
+    let path: String
+    let title: String
+}
+
 struct SMBDirectoryView: View {
     @EnvironmentObject private var smbStore: SMBStore
 
@@ -77,12 +89,8 @@ struct SMBDirectoryView: View {
             .navigationTitle(title)
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
-                ToolbarItem(placement: .topBarTrailing) {
-                    Button {
-                        showGrid.toggle()
-                    } label: {
-                        Image(systemName: showGrid ? "list.bullet" : "square.grid.2x2")
-                    }
+                ToolbarItem(id: "viewMode", placement: .topBarTrailing) {
+                    ViewModeToolbarButton(showGrid: $showGrid)
                 }
             }
             .fullScreenCover(item: $selectedImageItem) { tappedItem in
@@ -99,6 +107,8 @@ struct SMBDirectoryView: View {
                 )
             }
             .task(id: path) {
+                guard directoryItems.isEmpty else { return }
+
                 isLoadingDirectory = true
                 defer { isLoadingDirectory = false }
 
@@ -159,13 +169,7 @@ struct SMBDirectoryView: View {
     @ViewBuilder
     private func gridRow(for item: SMBItem) -> some View {
         if item.isDirectory {
-            NavigationLink {
-                SMBDirectoryView(
-                    path: item.path,
-                    title: item.name,
-                    showGrid: $showGrid
-                )
-            } label: {
+            NavigationLink(value: SMBDirectoryDestination(path: item.path, title: item.name)) {
                 gridCellContent(for: item)
             }
             .buttonStyle(.plain)
@@ -189,13 +193,7 @@ struct SMBDirectoryView: View {
     @ViewBuilder
     private func listRow(for item: SMBItem) -> some View {
         if item.isDirectory {
-            NavigationLink {
-                SMBDirectoryView(
-                    path: item.path,
-                    title: item.name,
-                    showGrid: $showGrid
-                )
-            } label: {
+            NavigationLink(value: SMBDirectoryDestination(path: item.path, title: item.name)) {
                 listRowContent(for: item)
             }
         } else {
@@ -356,6 +354,19 @@ struct SMBDirectoryView: View {
             selectedVideoItem = item
             return
         }
+    }
+}
+
+private struct ViewModeToolbarButton: View {
+    @Binding var showGrid: Bool
+
+    var body: some View {
+        Button {
+            showGrid.toggle()
+        } label: {
+            Image(systemName: showGrid ? "list.bullet" : "square.grid.2x2")
+        }
+        .accessibilityLabel(showGrid ? "Show list view" : "Show grid view")
     }
 }
 
