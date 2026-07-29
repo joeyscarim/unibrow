@@ -5,45 +5,6 @@ import Combine
 import AVFoundation
 import ImageIO
 
-struct SMBConnection {
-    let host: String
-    let share: String
-    let username: String
-    let password: String
-    var useEncryption: Bool = false
-}
-
-struct SMBItem: Identifiable, Hashable {
-    let id: String
-    let name: String
-    let path: String
-    let isDirectory: Bool
-    let size: Int64?
-}
-
-enum SMBStoreError: LocalizedError {
-    case invalidServerURL
-    case emptyShare
-    case couldNotCreateClient
-    case notConnected
-    case thumbnailGenerationFailed
-
-    var errorDescription: String? {
-        switch self {
-        case .invalidServerURL:
-            return "Enter a valid server address, such as 192.168.1.50 or mac-mini.local."
-        case .emptyShare:
-            return "Enter an SMB share name."
-        case .couldNotCreateClient:
-            return "Could not create an SMB connection."
-        case .notConnected:
-            return "Not connected to an SMB share."
-        case .thumbnailGenerationFailed:
-            return "Could not generate a thumbnail for this file."
-        }
-    }
-}
-
 @MainActor
 final class SMBStore: ObservableObject {
     @Published var isConnected = false
@@ -723,31 +684,5 @@ final class SMBStore: ObservableObject {
         thumbnailCacheDirectoryURL
             .appendingPathComponent(thumbnailCacheKey(for: item))
             .appendingPathExtension("thumb")
-    }
-}
-
-actor ThumbnailLoadLimiter {
-    private var inFlight = 0
-    private let limit = 3
-    private var waiters: [CheckedContinuation<Void, Never>] = []
-
-    func acquire() async {
-        if inFlight < limit {
-            inFlight += 1
-            return
-        }
-
-        await withCheckedContinuation { continuation in
-            waiters.append(continuation)
-        }
-    }
-
-    func release() {
-        if let next = waiters.first {
-            waiters.removeFirst()
-            next.resume()
-        } else {
-            inFlight = max(0, inFlight - 1)
-        }
     }
 }
