@@ -3,8 +3,19 @@ import Foundation
 import Security
 
 enum ThumbnailCacheEncryption {
-    /// One AES key per app install. Created on first encrypt; reused forever unless the app is deleted.
-    /// Clearing the thumbnail cache deletes files only — this key is not rotated or duplicated.
+    /// One AES key at a time. Created on first encrypt after install or after cache clear.
+    /// Clearing the thumbnail cache deletes files and this key; the next thumbnail creates a new key.
+
+    static func deleteEncryptionKey() {
+        deleteKeyData(
+            service: KeychainIdentifiers.service,
+            account: KeychainIdentifiers.thumbnailEncryptionAccount
+        )
+        deleteKeyData(
+            service: KeychainIdentifiers.legacyThumbnailService,
+            account: KeychainIdentifiers.legacyThumbnailAccount
+        )
+    }
 
     static func encrypt(_ plaintext: Data) throws -> Data {
         let sealed = try AES.GCM.seal(plaintext, using: try symmetricKey())

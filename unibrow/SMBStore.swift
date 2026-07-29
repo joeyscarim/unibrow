@@ -412,7 +412,7 @@ final class SMBStore: ObservableObject {
             try? ProtectedFileStorage.ensureThumbnailCacheDirectory(at: cacheURL)
         }.value
 
-        // Encryption key in Keychain is intentionally unchanged — one key per install, reused for new thumbnails.
+        ThumbnailCacheEncryption.deleteEncryptionKey()
     }
 
     func thumbnailCacheSizeInBytes() async -> Int64 {
