@@ -9,6 +9,7 @@ struct ImageGalleryView: View {
     @Environment(\.dismiss) private var dismiss
     @State private var loadedImages: [String: UIImage] = [:]
     @State private var selectedIndex: Int = 0
+    @State private var dismissDragOffset: CGFloat = 0
 
     private var imageItems: [SMBItem] {
         allItems.filter { !$0.isDirectory && smbStore.isImageFile($0.name) }
@@ -41,7 +42,19 @@ struct ImageGalleryView: View {
                         items: imageItems,
                         selectedIndex: $selectedIndex,
                         loadedImages: $loadedImages,
-                        smbStore: smbStore
+                        smbStore: smbStore,
+                        onDismissDrag: { offset in
+                            dismissDragOffset = offset
+                        },
+                        onDismissDragEnded: { translation, predicted in
+                            if translation > 120 || predicted > 220 {
+                                dismiss()
+                            } else {
+                                withAnimation(.spring(response: 0.32, dampingFraction: 0.86)) {
+                                    dismissDragOffset = 0
+                                }
+                            }
+                        }
                     )
                     .onAppear {
                         if let index = imageItems.firstIndex(where: { $0.path == selectedItem.path }) {
@@ -52,6 +65,8 @@ struct ImageGalleryView: View {
                     }
                 }
             }
+            .offset(y: dismissDragOffset)
+            .opacity(1 - min(dismissDragOffset / 500, 0.45))
             .toolbar {
                 ToolbarItem(placement: .topBarLeading) {
                     Button {
@@ -84,6 +99,8 @@ private struct PagingImageViewer: View {
     @Binding var selectedIndex: Int
     @Binding var loadedImages: [String: UIImage]
     let smbStore: SMBStore
+    let onDismissDrag: (CGFloat) -> Void
+    let onDismissDragEnded: (_ translation: CGFloat, _ predicted: CGFloat) -> Void
 
     @State private var pageDragOffset: CGFloat = 0
     @State private var currentScale: CGFloat = 1
@@ -124,6 +141,15 @@ private struct PagingImageViewer: View {
                                         selectedIndex = newIndex
                                         pageDragOffset = 0
                                     }
+                                },
+                                onDismissDrag: { translation in
+                                    guard currentScale <= 1.01 else { return }
+                                    pageDragOffset = 0
+                                    onDismissDrag(translation)
+                                },
+                                onDismissDragEnded: { translation, predicted in
+                                    guard currentScale <= 1.01 else { return }
+                                    onDismissDragEnded(translation, predicted)
                                 }
                             )
                         } else {
@@ -176,6 +202,8 @@ private struct ZoomablePagedImageView: View {
     @Binding var currentScale: CGFloat
     let onPageDrag: (CGFloat) -> Void
     let onPageDragEnded: (_ translation: CGFloat, _ predicted: CGFloat) -> Void
+    let onDismissDrag: (CGFloat) -> Void
+    let onDismissDragEnded: (_ translation: CGFloat, _ predicted: CGFloat) -> Void
 
     @State private var scale: CGFloat = 1
     @State private var baseScale: CGFloat = 1
@@ -242,6 +270,8 @@ private struct ZoomablePagedImageView: View {
                                     width: baseOffset.width + value.translation.width,
                                     height: baseOffset.height + value.translation.height
                                 )
+                            } else if isDismissDrag(value.translation) {
+                                onDismissDrag(value.translation.height)
                             } else {
                                 onPageDrag(value.translation.width)
                             }
@@ -249,6 +279,11 @@ private struct ZoomablePagedImageView: View {
                         .onEnded { value in
                             if scale > 1.01 {
                                 baseOffset = offset
+                            } else if isDismissDrag(value.translation) {
+                                onDismissDragEnded(
+                                    value.translation.height,
+                                    value.predictedEndTranslation.height
+                                )
                             } else {
                                 onPageDragEnded(
                                     value.translation.width,
@@ -259,5 +294,9 @@ private struct ZoomablePagedImageView: View {
                 )
                 .background(Color.black)
         }
+    }
+
+    private func isDismissDrag(_ translation: CGSize) -> Bool {
+        translation.height > 0 && abs(translation.height) > abs(translation.width)
     }
 }
