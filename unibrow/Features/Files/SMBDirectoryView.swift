@@ -163,12 +163,7 @@ struct SMBDirectoryView: View {
             .frame(maxWidth: .infinity)
         } else {
             VStack(spacing: 8) {
-                RoundedRectangle(cornerRadius: 12)
-                    .fill(Color(.secondarySystemBackground))
-                    .overlay {
-                        thumbnailContent(for: item, style: .grid)
-                    }
-                    .aspectRatio(1, contentMode: .fit)
+                thumbnailContent(for: item, style: .grid)
 
                 Text(item.name)
                     .font(.caption)
@@ -208,6 +203,34 @@ struct SMBDirectoryView: View {
     private enum ThumbnailStyle {
         case grid
         case list
+
+        var maxWidth: CGFloat {
+            switch self {
+            case .grid: 120
+            case .list: 40
+            }
+        }
+
+        var maxHeight: CGFloat {
+            switch self {
+            case .grid: 120
+            case .list: 40
+            }
+        }
+
+        var cornerRadius: CGFloat {
+            switch self {
+            case .grid: 12
+            case .list: 8
+            }
+        }
+
+        var playButtonSize: CGFloat {
+            switch self {
+            case .grid: 28
+            case .list: 14
+            }
+        }
     }
 
     @ViewBuilder
@@ -216,43 +239,15 @@ struct SMBDirectoryView: View {
             filesAppFolderIcon(for: item, size: style == .grid ? 76 : 34)
 
         } else if let image = smbStore.thumbnail(for: item) {
-            switch style {
-            case .grid:
-                GeometryReader { proxy in
-                    ZStack {
-                        Image(uiImage: image)
-                            .resizable()
-                            .scaledToFill()
-                            .frame(width: proxy.size.width, height: proxy.size.height)
-                            .clipped()
-
-                        if smbStore.isVideoFile(item.name) {
-                            Image(systemName: "play.circle.fill")
-                                .font(.system(size: 28))
-                                .foregroundStyle(.white)
-                                .shadow(radius: 4)
-                        }
-                    }
-                }
-                .clipShape(RoundedRectangle(cornerRadius: 12))
-
-            case .list:
-                ZStack {
-                    Image(uiImage: image)
-                        .resizable()
-                        .scaledToFill()
-                        .frame(width: 40, height: 40)
-                        .clipped()
-                        .clipShape(RoundedRectangle(cornerRadius: 8))
-
-                    if smbStore.isVideoFile(item.name) {
-                        Image(systemName: "play.circle.fill")
-                            .font(.system(size: 14))
-                            .foregroundStyle(.white)
-                            .shadow(radius: 2)
-                    }
-                }
-            }
+            AspectFitThumbnail(
+                image: image,
+                maxWidth: style.maxWidth,
+                maxHeight: style.maxHeight,
+                cornerRadius: style.cornerRadius,
+                showsPlayButton: smbStore.isVideoFile(item.name),
+                playButtonSize: style.playButtonSize
+            )
+            .frame(maxWidth: style == .grid ? .infinity : nil)
 
         } else if smbStore.isImageFile(item.name) || smbStore.isVideoFile(item.name) {
             ZStack {
@@ -260,11 +255,13 @@ struct SMBDirectoryView: View {
 
                 if smbStore.isVideoFile(item.name) {
                     Image(systemName: "play.circle.fill")
-                        .font(.system(size: style == .grid ? 22 : 14))
+                        .font(.system(size: style.playButtonSize))
                         .foregroundStyle(.white)
-                        .shadow(radius: style == .grid ? 4 : 0)
+                        .shadow(radius: style == .grid ? 4 : 2)
                 }
             }
+            .frame(maxWidth: style.maxWidth, maxHeight: style.maxHeight)
+            .frame(maxWidth: style == .grid ? .infinity : nil)
 
         } else {
             Image(systemName: "doc.fill")
@@ -293,6 +290,32 @@ struct SMBDirectoryView: View {
         if smbStore.isVideoFile(item.name) {
             selectedVideoItem = item
             return
+        }
+    }
+}
+
+private struct AspectFitThumbnail: View {
+    let image: UIImage
+    let maxWidth: CGFloat
+    let maxHeight: CGFloat
+    let cornerRadius: CGFloat
+    let showsPlayButton: Bool
+    let playButtonSize: CGFloat
+
+    var body: some View {
+        ZStack {
+            Image(uiImage: image)
+                .resizable()
+                .scaledToFit()
+                .frame(maxWidth: maxWidth, maxHeight: maxHeight)
+                .clipShape(RoundedRectangle(cornerRadius: cornerRadius))
+
+            if showsPlayButton {
+                Image(systemName: "play.circle.fill")
+                    .font(.system(size: playButtonSize))
+                    .foregroundStyle(.white)
+                    .shadow(radius: playButtonSize > 20 ? 4 : 2)
+            }
         }
     }
 }
