@@ -212,7 +212,7 @@ struct SMBDirectoryView: View {
     private func gridCellContent(for item: SMBItem) -> some View {
         if item.isDirectory {
             VStack(spacing: 4) {
-                filesAppFolderIcon(for: item, size: 64)
+                filesAppFolderIcon(for: item, size: 76)
                     .padding(.top, 8)
 
                 Text(item.name)
@@ -275,7 +275,7 @@ struct SMBDirectoryView: View {
     @ViewBuilder
     private func thumbnailContent(for item: SMBItem, style: ThumbnailStyle) -> some View {
         if item.isDirectory {
-            filesAppFolderIcon(for: item, size: style == .grid ? 64 : 28)
+            filesAppFolderIcon(for: item, size: style == .grid ? 76 : 34)
 
         } else if let image = smbStore.thumbnails[item.path] {
             switch style {
