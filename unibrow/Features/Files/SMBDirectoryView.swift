@@ -13,7 +13,7 @@ struct SMBDirectoryView: View {
     @Binding var showGrid: Bool
 
     @State private var directoryItems: [SMBItem] = []
-    @State private var isLoadingDirectory = false
+    @State private var isContentReady = false
     @State private var selectedVideoItem: SMBItem?
     @State private var previewError = ""
     @State private var selectedImageItem: SMBItem?
@@ -24,7 +24,13 @@ struct SMBDirectoryView: View {
     )
 
     var body: some View {
-        browserContent
+        ZStack {
+            Color.black.ignoresSafeArea()
+
+            if isContentReady {
+                browserContent
+            }
+        }
             .navigationTitle(title)
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
@@ -46,25 +52,11 @@ struct SMBDirectoryView: View {
                 )
             }
             .task(id: path) {
-                guard directoryItems.isEmpty else { return }
-
-                isLoadingDirectory = true
-                defer { isLoadingDirectory = false }
-
-                do {
-                    directoryItems = try await smbStore.directoryItems(at: path)
-                } catch {
-                    guard !Task.isCancelled else { return }
-                    previewError = error.localizedDescription
-                }
+                await loadDirectory()
             }
             .onChange(of: smbStore.hideHiddenFiles) { _, _ in
                 Task {
-                    do {
-                        directoryItems = try await smbStore.directoryItems(at: path)
-                    } catch {
-                        previewError = error.localizedDescription
-                    }
+                    await loadDirectory()
                 }
             }
             .alert("Error", isPresented: Binding(
@@ -88,20 +80,29 @@ struct SMBDirectoryView: View {
                 }
                 .padding(12)
             }
-            .overlay {
-                if isLoadingDirectory {
-                    ProgressView("Loading...")
-                }
-            }
         } else {
             List(directoryItems) { item in
                 listRow(for: item)
             }
-            .overlay {
-                if isLoadingDirectory {
-                    ProgressView("Loading...")
-                }
-            }
+        }
+    }
+
+    private func loadDirectory() async {
+        isContentReady = false
+
+        do {
+            let items = try await smbStore.directoryItems(at: path)
+            guard !Task.isCancelled else { return }
+
+            await smbStore.loadFolderItemCounts(for: items)
+            guard !Task.isCancelled else { return }
+
+            directoryItems = items
+            isContentReady = true
+        } catch {
+            guard !Task.isCancelled else { return }
+            previewError = error.localizedDescription
+            isContentReady = true
         }
     }
 

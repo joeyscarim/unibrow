@@ -196,6 +196,16 @@ final class SMBStore: ObservableObject {
         }
     }
 
+    func loadFolderItemCounts(for items: [SMBItem]) async {
+        await withTaskGroup(of: Void.self) { group in
+            for item in items where item.isDirectory {
+                group.addTask {
+                    await self.loadFolderItemCount(for: item)
+                }
+            }
+        }
+    }
+
     private static func mapDirectoryResults(
         _ results: [[URLResourceKey: Any]],
         hideHiddenFiles: Bool
