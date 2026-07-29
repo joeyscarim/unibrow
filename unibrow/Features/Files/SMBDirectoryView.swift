@@ -148,34 +148,28 @@ struct SMBDirectoryView: View {
 
     @ViewBuilder
     private func gridCellContent(for item: SMBItem) -> some View {
-        if item.isDirectory {
-            VStack(spacing: 4) {
-                filesAppFolderIcon(for: item, size: 76)
-                    .padding(.top, 8)
+        VStack(spacing: 8) {
+            itemContainer(style: .grid) {
+                thumbnailContent(for: item, style: .grid)
+            }
 
-                Text(item.name)
-                    .font(.subheadline)
-                    .lineLimit(2)
-                    .multilineTextAlignment(.center)
+            Text(item.name)
+                .font(item.isDirectory ? .subheadline : .caption)
+                .lineLimit(2)
+                .multilineTextAlignment(.center)
 
+            if item.isDirectory {
                 FolderItemCountLabel(item: item)
             }
-            .frame(maxWidth: .infinity)
-        } else {
-            VStack(spacing: 8) {
-                thumbnailContent(for: item, style: .grid)
-
-                Text(item.name)
-                    .font(.caption)
-                    .lineLimit(2)
-                    .multilineTextAlignment(.center)
-            }
         }
+        .frame(maxWidth: .infinity)
     }
 
     private func listRowContent(for item: SMBItem) -> some View {
         HStack {
-            thumbnailContent(for: item, style: .list)
+            itemContainer(style: .list) {
+                thumbnailContent(for: item, style: .list)
+            }
 
             VStack(alignment: .leading, spacing: 4) {
                 Text(item.name)
@@ -204,14 +198,14 @@ struct SMBDirectoryView: View {
         case grid
         case list
 
-        var maxWidth: CGFloat {
+        var containerWidth: CGFloat {
             switch self {
             case .grid: 120
             case .list: 40
             }
         }
 
-        var maxHeight: CGFloat {
+        var containerHeight: CGFloat {
             switch self {
             case .grid: 120
             case .list: 40
@@ -231,23 +225,48 @@ struct SMBDirectoryView: View {
             case .list: 14
             }
         }
+
+        var folderIconSize: CGFloat {
+            switch self {
+            case .grid: 76
+            case .list: 34
+            }
+        }
+
+        var documentIconSize: CGFloat {
+            switch self {
+            case .grid: 64
+            case .list: 28
+            }
+        }
+    }
+
+    @ViewBuilder
+    private func itemContainer<Content: View>(
+        style: ThumbnailStyle,
+        @ViewBuilder content: () -> Content
+    ) -> some View {
+        ZStack {
+            content()
+        }
+        .frame(width: style.containerWidth, height: style.containerHeight)
+        .frame(maxWidth: style == .grid ? .infinity : nil)
     }
 
     @ViewBuilder
     private func thumbnailContent(for item: SMBItem, style: ThumbnailStyle) -> some View {
         if item.isDirectory {
-            filesAppFolderIcon(for: item, size: style == .grid ? 76 : 34)
+            filesAppFolderIcon(for: item, size: style.folderIconSize)
 
         } else if let image = smbStore.thumbnail(for: item) {
             AspectFitThumbnail(
                 image: image,
-                maxWidth: style.maxWidth,
-                maxHeight: style.maxHeight,
+                maxWidth: style.containerWidth,
+                maxHeight: style.containerHeight,
                 cornerRadius: style.cornerRadius,
                 showsPlayButton: smbStore.isVideoFile(item.name),
                 playButtonSize: style.playButtonSize
             )
-            .frame(maxWidth: style == .grid ? .infinity : nil)
 
         } else if smbStore.isImageFile(item.name) || smbStore.isVideoFile(item.name) {
             ZStack {
@@ -260,12 +279,10 @@ struct SMBDirectoryView: View {
                         .shadow(radius: style == .grid ? 4 : 2)
                 }
             }
-            .frame(maxWidth: style.maxWidth, maxHeight: style.maxHeight)
-            .frame(maxWidth: style == .grid ? .infinity : nil)
 
         } else {
             Image(systemName: "doc.fill")
-                .font(.system(size: style == .grid ? 30 : 20))
+                .font(.system(size: style.documentIconSize))
                 .foregroundStyle(.secondary)
         }
     }
