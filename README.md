@@ -8,6 +8,13 @@
 
 Unibrow connects your iPhone directly to SMB shares on your network — no cloud, no middleman.
 
+- 🔌 Save & manage multiple SMB connections
+- 🗂️ Browse folders with grid or list view
+- 🖼️ Image thumbnails (JPEG, PNG, GIF, WebP)
+- 🔍 Full-screen gallery with zoom & swipe
+- ▶️ Built-in video playback (MP4, MOV, M4V)
+- 🔐 Secure- Passwords in Keychain, encyrpted thumbnail cache
+
 ### Connections
 
 - **Save multiple SMB servers** — name, host, share, username, and password
@@ -161,14 +168,14 @@ Opening an image in the gallery downloads the **entire file into memory** (`Data
 
 ## Other local data
 
-| Data | Location | Protection |
-|------|----------|------------|
-| Saved connections (no password) | UserDefaults | Standard app sandbox |
-| SMB passwords | Keychain (`com.joeyscarim.unibrow`) | `WhenUnlocked` |
-| Thumbnail cache key | Keychain (`com.joeyscarim.unibrow`) | `WhenUnlockedThisDeviceOnly` |
-| Thumbnail blobs | Caches | AES-GCM + `.complete` |
-| Temp videos (during playback) | tmp | `.completeUnlessOpen`, deleted on close |
-| Hide hidden files preference | UserDefaults | Non-sensitive |
+| Data                            | Location                            | Protection                              |
+| ------------------------------- | ----------------------------------- | --------------------------------------- |
+| Saved connections (no password) | UserDefaults                        | Standard app sandbox                    |
+| SMB passwords                   | Keychain (`com.joeyscarim.unibrow`) | `WhenUnlocked`                          |
+| Thumbnail cache key             | Keychain (`com.joeyscarim.unibrow`) | `WhenUnlockedThisDeviceOnly`            |
+| Thumbnail blobs                 | Caches                              | AES-GCM + `.complete`                   |
+| Temp videos (during playback)   | tmp                                 | `.completeUnlessOpen`, deleted on close |
+| Hide hidden files preference    | UserDefaults                        | Non-sensitive                           |
 
 ---
 
@@ -200,14 +207,14 @@ Like all App Store apps, unibrow runs in a **sandbox**. Other apps cannot read i
 
 ## Security-related source files
 
-| File | Role |
-|------|------|
-| `KeychainIdentifiers.swift` | Shared Keychain service ID and legacy migration constants |
-| `ThumbnailCacheEncryption.swift` | AES-GCM key generation and Keychain storage |
-| `ProtectedFileStorage.swift` | File protection classes, encrypted thumbnail I/O |
-| `KeychainService.swift` | SMB password Keychain access |
-| `SMBStore.swift` | SMB connection, encryption flag, cache and temp file handling |
-| `SavedConnection.swift` | Per-connection `useEncryption` preference |
+| File                             | Role                                                          |
+| -------------------------------- | ------------------------------------------------------------- |
+| `KeychainIdentifiers.swift`      | Shared Keychain service ID and legacy migration constants     |
+| `ThumbnailCacheEncryption.swift` | AES-GCM key generation and Keychain storage                   |
+| `ProtectedFileStorage.swift`     | File protection classes, encrypted thumbnail I/O              |
+| `KeychainService.swift`          | SMB password Keychain access                                  |
+| `SMBStore.swift`                 | SMB connection, encryption flag, cache and temp file handling |
+| `SavedConnection.swift`          | Per-connection `useEncryption` preference                     |
 
 ---
 
