@@ -181,4 +181,6 @@ If you find a security vulnerability, please open a private disclosure (GitHub S
 
 ## License
 
-See [LICENSE](LICENSE) if present in this repository.
+Unibrow's own source code is licensed under the [MIT License](LICENSE).
+
+This app uses [AMSMB2](https://github.com/amosavian/AMSMB2) (which wraps [libsmb2](https://github.com/sahlberg/libsmb2)) under the **GNU LGPL v2.1**. AMSMB2 is linked as a **dynamic framework** in the app bundle. If you distribute a build, you must comply with LGPL-2.1 for those components (including source availability for AMSMB2/libsmb2). See [LICENSE](LICENSE) for details.
