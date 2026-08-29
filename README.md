@@ -51,6 +51,35 @@ See **[Privacy & Security](docs/SECURITY.md)** for the full threat model, data h
 
 ---
 
+## Tech stack
+
+| | |
+|---|---|
+| **Platform** | Native iOS (iPhone), iOS 26.5+ |
+| **UI** | SwiftUI |
+| **Language** | Swift 5 |
+| **SMB** | [AMSMB2](https://github.com/amosavian/AMSMB2) 4.0.3 → [libsmb2](https://github.com/sahlberg/libsmb2) (dynamic framework) |
+| **Media** | AVFoundation, AVKit, ImageIO |
+| **Security** | Keychain Services, CryptoKit (AES-256-GCM), iOS Data Protection |
+| **Storage** | UserDefaults (connection metadata), Keychain (passwords & cache key), encrypted on-disk thumbnail cache |
+| **Dependencies** | Swift Package Manager — no third-party analytics or cloud SDKs |
+| **Architecture** | Local-first; direct client ↔ server, no backend |
+
+---
+
+## Roadmap
+
+The long-term goal: **one app for all your remote files and shells** — a unified file browser and remote terminal for your NAS, VPS, and homelab.
+
+- [ ] **SSH terminal** — interactive shell access to remote hosts
+- [ ] **Mosh** — resilient mobile shell sessions over flaky networks
+- [ ] **Jellyfin** — connect to your media server, browse libraries, and stream from your collection
+- [ ] **SFTP** — browse and transfer files over SSH file transfer
+- [ ] **Search** — find files across connected shares and libraries
+- [ ] **Favorites & recents** — quick access to folders and servers you use often
+
+---
+
 ## License
 
 Unibrow's own source code is licensed under the [MIT License](LICENSE).
