@@ -1,5 +1,5 @@
 <div align="center">
-  <img src="docs/app-icon.png" alt="Unibrow app icon" width="128">
+  <img src="docs/app-icon.png" alt="Unibrow app icon" width="128" style="border-radius: 22%;">
   <h1>Unibrow</h1>
   <p>A native iOS SMB file browser. Browse shares on your network, view images and videos, and manage saved connections — with security considered at each layer.</p>
 </div>
