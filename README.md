@@ -4,6 +4,44 @@
   <p>A native iOS SMB file browser. Browse shares on your network, view images and videos, and manage saved connections — with security considered at each layer.</p>
 </div>
 
+## Features
+
+Unibrow connects your iPhone directly to SMB shares on your network — no cloud, no middleman.
+
+### Connections
+
+- **Save multiple SMB servers** — name, host, share, username, and password
+- **Test before you save** — verify a connection works before adding it
+- **Edit or delete** saved connections from the Files tab
+- **Optional SMB3 encryption** per connection for encrypted traffic on the wire
+
+### Browse files
+
+- **Folder navigation** — drill into directories with standard back navigation
+- **Grid or list view** — toggle layout from the toolbar
+- **Files-style folders** — folder icons show empty/full state and item counts
+- **Hide hidden files** — optional filter for dotfiles and hidden items (Settings)
+
+### Photos & videos
+
+- **Image thumbnails** — JPEG, PNG, GIF, and WebP, shown at their natural aspect ratio
+- **Full-screen gallery** — pinch to zoom, swipe between images, swipe down to dismiss
+- **Video playback** — open MP4, MOV, and M4V files in a built-in player
+
+### Performance & storage
+
+- **Smart thumbnails** — downsampled and cached on disk so folders load faster on repeat visits
+- **Encrypted thumbnail cache** — cached previews are encrypted at rest on device
+- **Clear cache** — view cache size and wipe thumbnails from Settings
+
+### Privacy
+
+- **Local-first** — files move only between your phone and your server
+- **No analytics or third-party file relay** — the app talks only to servers you configure
+- **Passwords in Keychain** — credentials are not stored in plaintext preferences
+
+---
+
 ## Security overview
 
 unibrow is designed as a **local-first** file browser. All file access goes directly between your iPhone and your SMB server. There is no cloud backend, analytics SDK, or third-party file relay.
